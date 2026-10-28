@@ -36,7 +36,7 @@ export async function probeAudio(file: File): Promise<MediaInfo> {
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   try {
     const track = await input.getPrimaryAudioTrack();
-    if (!track) throw new Error('No audio track found in this file.');
+    if (!track) throw new Error('This file has no audio track. Choose an audio file such as .m4a or .mp3.');
     return { duration: await track.computeDuration(), codec: track.codec, size: file.size };
   } finally {
     input.dispose();
@@ -47,7 +47,7 @@ export async function probeVideo(file: File): Promise<MediaInfo> {
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   try {
     const track = await input.getPrimaryVideoTrack();
-    if (!track) throw new Error('No video track found in this file.');
+    if (!track) throw new Error('This file has no video track. Choose a video file such as .mp4.');
     return {
       duration: await track.computeDuration(),
       codec: track.codec,

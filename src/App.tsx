@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DropZone, type Picked } from './components/DropZone';
 import { Thumbnail } from './components/Thumbnail';
-import { errorText, fmtBytes, fmtTime, load, parseTime, save } from './lib/format';
+import { ErrorNotice, describeError } from './components/ui';
+import { fmtBytes, fmtTime, load, parseTime, save } from './lib/format';
 import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, toFileName } from './lib/naming';
 import { probeAudio, probeVideo } from './lib/probe';
 import { estimateSize, render } from './lib/render';
+import './styles/base.css';
 import './App.css';
 
 type Slot = 'audio' | 'video' | 'intro' | 'outro';
@@ -19,7 +21,7 @@ type Status =
       size: number | null;
       loudness?: { measured: number; gainDb: number };
     }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; details: string };
 
 type SavePicker = (o: {
   suggestedName?: string;
@@ -33,16 +35,20 @@ const BITRATES = [
   { label: 'Medium · 2.5 Mbps', value: 2_500_000 },
   { label: 'High · 5 Mbps', value: 5_000_000 },
 ];
+const TIME_FORMAT_ERROR = 'Enter seconds (90) or minutes:seconds (1:30).';
 
 export default function App() {
   const [files, setFiles] = useState<Record<Slot, Picked>>({ audio: null, video: null, intro: null, outro: null });
   const [loading, setLoading] = useState<Slot | null>(null);
+  const [fileError, setFileError] = useState<Partial<Record<Slot, string>>>({});
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [submitted, setSubmitted] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // audio
-  const [trimStartText, setTrimStartText] = useState('0');
-  const [trimEndText, setTrimEndText] = useState('0');
+  // audio (trim values are drafts: they survive a refresh)
+  const [trimStartText, setTrimStartText] = useState(() => load('trimStart', '0'));
+  const [trimEndText, setTrimEndText] = useState(() => load('trimEnd', '0'));
+  const [trimUi, setTrimUi] = useState({ start: { touched: false, editing: false }, end: { touched: false, editing: false } });
   const [normalize, setNormalize] = useState(() => load('normalize', true));
   const [targetLufs, setTargetLufs] = useState(() => load('targetLufs', -14));
   // video
@@ -52,39 +58,57 @@ export default function App() {
   // naming
   const [show, setShow] = useState(() => load('show', ''));
   const [episode, setEpisode] = useState(() => load('episode', 1));
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(() => load('title', ''));
   const [template, setTemplate] = useState(() => load('template', DEFAULT_TEMPLATE));
   const [bumpEpisode, setBumpEpisode] = useState(() => load('bumpEpisode', true));
   // Set after an export; the number goes up when the next episode's audio is loaded,
   // so the thumbnail made right after an export still shows the right episode.
   const [pendingBump, setPendingBump] = useState(() => load('pendingBump', false));
 
-  useEffect(() => save('normalize', normalize), [normalize]);
-  useEffect(() => save('targetLufs', targetLufs), [targetLufs]);
-  useEffect(() => save('compress', compress), [compress]);
-  useEffect(() => save('maxHeight', maxHeight), [maxHeight]);
-  useEffect(() => save('bitrate', bitrate), [bitrate]);
-  useEffect(() => save('show', show), [show]);
-  useEffect(() => save('episode', episode), [episode]);
-  useEffect(() => save('template', template), [template]);
-  useEffect(() => save('bumpEpisode', bumpEpisode), [bumpEpisode]);
-  useEffect(() => save('pendingBump', pendingBump), [pendingBump]);
+  const persisted = { trimStart: trimStartText, trimEnd: trimEndText, normalize, targetLufs, compress, maxHeight, bitrate, show, episode, title, template, bumpEpisode, pendingBump };
+  useEffect(() => {
+    for (const [k, v] of Object.entries(persisted)) save(k, v);
+  });
 
   const { audio, video, intro, outro } = files;
   const running = status.kind === 'running';
 
+  // Warn before leaving with work in progress (files can't be restored after a reload).
+  useEffect(() => {
+    const dirty = running || !!audio || !!video;
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [running, audio, video]);
+
   const baseName = applyTemplate(template, { show, episode, title }) || audio?.file.name.replace(/\.[^.]+$/, '') || 'video';
   const fileName = toFileName(baseName);
 
+  // ---- trim validation: on blur, cleared while editing ----
   const trimStart = parseTime(trimStartText);
   const trimEnd = parseTime(trimEndText);
-  const trimValid =
-    trimStart !== null && trimEnd !== null && (!audio || trimStart + trimEnd < audio.info.duration - 1);
-  const mainDuration = audio && trimValid ? audio.info.duration - trimStart! - trimEnd! : 0;
-  const introDur = intro?.info.duration ?? 0;
-  const outroDur = outro?.info.duration ?? 0;
-  const totalDuration = mainDuration + introDur + outroDur;
+  const startFormatError = trimStart === null ? TIME_FORMAT_ERROR : null;
+  const endFormatError = trimEnd === null ? TIME_FORMAT_ERROR : null;
+  const rangeError =
+    !startFormatError && !endFormatError && audio && trimStart! + trimEnd! >= audio.info.duration - 1
+      ? 'That cuts the whole recording. Cut less so at least 1 second remains.'
+      : null;
+  const shown = (key: 'start' | 'end', err: string | null) =>
+    err && (trimUi[key].touched || submitted) && !trimUi[key].editing ? err : null;
+  const startErrorShown = shown('start', startFormatError);
+  const endErrorShown = shown('end', endFormatError ?? rangeError);
+  const trimValid = !startFormatError && !endFormatError && !rangeError;
+  const fieldHandlers = (key: 'start' | 'end') => ({
+    onFocus: () => setTrimUi((u) => ({ ...u, [key]: { ...u[key], editing: true } })),
+    onBlur: () => setTrimUi((u) => ({ ...u, [key]: { touched: true, editing: false } })),
+  });
 
+  const mainDuration = audio && trimValid ? audio.info.duration - trimStart! - trimEnd! : audio?.info.duration ?? 0;
+  const totalDuration = mainDuration + (intro?.info.duration ?? 0) + (outro?.info.duration ?? 0);
   const reencodeVideo = compress || !!intro || !!outro;
   const reencodeAudio = normalize || !!intro || !!outro;
 
@@ -105,7 +129,7 @@ export default function App() {
   const pick = async (slot: Slot, file: File | undefined) => {
     if (!file) return;
     setLoading(slot);
-    setStatus({ kind: 'idle' });
+    setFileError((e) => ({ ...e, [slot]: undefined }));
     try {
       const info = slot === 'audio' ? await probeAudio(file) : await probeVideo(file);
       const picked = { file, info, url: URL.createObjectURL(file) };
@@ -121,7 +145,7 @@ export default function App() {
         setPendingBump(false);
       }
     } catch (e) {
-      setStatus({ kind: 'error', message: errorText(e) });
+      setFileError((err) => ({ ...err, [slot]: describeError(e, 'This file could not be read. Choose another file.').message }));
     } finally {
       setLoading(null);
     }
@@ -133,11 +157,24 @@ export default function App() {
       return { ...prev, [slot]: null };
     });
 
+  const missingAudio = !audio ? 'Add an audio file to create the video.' : null;
+  const missingVideo = !video ? 'Add a loop video to create the video.' : null;
+
   const generate = async () => {
-    if (!audio || !video || !trimValid) return;
+    setSubmitted(true);
+    setTrimUi({ start: { touched: true, editing: false }, end: { touched: true, editing: false } });
+    // Submit stays clickable: point to the first problem instead.
+    const firstProblem = missingAudio ? 'drop-audio' : missingVideo ? 'drop-video' : !trimValid ? (startFormatError ? 'trim-start' : 'trim-end') : null;
+    if (firstProblem) {
+      const el = document.getElementById(firstProblem);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (el?.matches('input') ? el : el?.querySelector<HTMLElement>('button:last-of-type'))?.focus({ preventScroll: true });
+      return;
+    }
+    if (!audio || !video) return;
+
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-
     let writable: FileSystemWritableFileStream | undefined;
     if (savePicker) {
       try {
@@ -182,7 +219,13 @@ export default function App() {
     } catch (e) {
       await writable?.abort().catch(() => {});
       if ((e as DOMException).name === 'AbortError') setStatus({ kind: 'idle' });
-      else setStatus({ kind: 'error', message: errorText(e) });
+      else {
+        const { message, details } = describeError(
+          e,
+          'Rendering stopped because of a browser error. Try again, or copy the error details for support.',
+        );
+        setStatus({ kind: 'error', message, details });
+      }
     } finally {
       abortRef.current = null;
     }
@@ -198,155 +241,169 @@ export default function App() {
     document.title = status.kind === 'running' ? `${Math.round(status.progress * 100)}% · Flimio` : 'Flimio';
   }, [status]);
 
+  const processing =
+    !reencodeVideo && !reencodeAudio ? 'Copy only (fastest)' : reencodeVideo && reencodeAudio ? 'Re-encodes audio and clip' : reencodeAudio ? 'Re-encodes audio' : 'Re-encodes clip';
+
   return (
-    <main className="wrap">
-      <nav className="topnav">
-        <a href="./simple.html" title="The previous copy-only version: audio + loop video, nothing else">
-          Old / simple / fast version →
-        </a>
+    <main className="page">
+      <nav className="topnav" aria-label="Versions">
+        <a href="./simple.html">Open simple version (fast, copy-only)</a>
       </nav>
-      <header>
+      <header className="page-head">
         <h1>Flimio</h1>
-        <p className="sub">
+        <p className="lede">
           Turn a long audio recording and a short looping video into an MP4 ready for YouTube. Everything runs in your
           browser — your files never leave your computer.
         </p>
       </header>
 
-      <section className="grid">
-        <DropZone
-          label="Audio"
-          hint="m4a, mp3, aac, wav…"
-          accept="audio/*,.m4a"
-          picked={audio}
-          loading={loading === 'audio'}
-          disabled={running}
-          onFile={(f) => pick('audio', f)}
-        >
-          {audio && <audio src={audio.url} controls preload="metadata" />}
-        </DropZone>
-        <DropZone
-          label="Loop video"
-          hint="a short clip, e.g. 10 seconds"
-          accept="video/*,.mp4,.mov,.webm"
-          picked={video}
-          loading={loading === 'video'}
-          disabled={running}
-          onFile={(f) => pick('video', f)}
-        >
-          {video && <video src={video.url} autoPlay muted loop playsInline />}
-        </DropZone>
-        <DropZone
-          label="Intro"
-          hint="plays before the episode, with its own sound"
-          accept="video/*,.mp4,.mov,.webm"
-          picked={intro}
-          loading={loading === 'intro'}
-          disabled={running}
-          optional
-          compact
-          onFile={(f) => pick('intro', f)}
-          onClear={() => clear('intro')}
-        />
-        <DropZone
-          label="Outro"
-          hint="plays after the episode — handy for end screens"
-          accept="video/*,.mp4,.mov,.webm"
-          picked={outro}
-          loading={loading === 'outro'}
-          disabled={running}
-          optional
-          compact
-          onFile={(f) => pick('outro', f)}
-          onClear={() => clear('outro')}
-        />
+      <section className="section" aria-labelledby="h-files">
+        <h2 id="h-files">Files</h2>
+        <div className="grid-2">
+          <DropZone
+            id="drop-audio"
+            label="Audio"
+            hint="The episode recording — m4a, mp3, wav."
+            accept="audio/*,.m4a"
+            picked={audio}
+            loading={loading === 'audio'}
+            disabled={running}
+            required
+            error={fileError.audio ?? (submitted ? missingAudio : null)}
+            onFile={(f) => pick('audio', f)}
+          >
+            {audio && <audio src={audio.url} controls preload="metadata" />}
+          </DropZone>
+          <DropZone
+            id="drop-video"
+            label="Loop video"
+            hint="A short clip, e.g. 10 seconds."
+            accept="video/*,.mp4,.mov,.webm"
+            picked={video}
+            loading={loading === 'video'}
+            disabled={running}
+            required
+            error={fileError.video ?? (submitted ? missingVideo : null)}
+            onFile={(f) => pick('video', f)}
+          >
+            {video && <video src={video.url} autoPlay muted loop playsInline />}
+          </DropZone>
+          <DropZone
+            label="Intro"
+            hint="Plays before the episode, with its own sound."
+            accept="video/*,.mp4,.mov,.webm"
+            picked={intro}
+            loading={loading === 'intro'}
+            disabled={running}
+            error={fileError.intro}
+            onFile={(f) => pick('intro', f)}
+            onClear={() => clear('intro')}
+          />
+          <DropZone
+            label="Outro"
+            hint="Plays after the episode — handy for end screens."
+            accept="video/*,.mp4,.mov,.webm"
+            picked={outro}
+            loading={loading === 'outro'}
+            disabled={running}
+            error={fileError.outro}
+            onFile={(f) => pick('outro', f)}
+            onClear={() => clear('outro')}
+          />
+        </div>
       </section>
 
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Audio</h2>
-        </div>
-        <div className="field-row">
+      <section className="section" aria-labelledby="h-audio">
+        <h2 id="h-audio">Audio</h2>
+        <div className="row">
           <label className="field">
             Cut from start
             <input
-              className={trimStart === null ? 'invalid' : ''}
+              id="trim-start"
+              inputMode="decimal"
               value={trimStartText}
               onChange={(e) => setTrimStartText(e.target.value)}
+              {...fieldHandlers('start')}
               placeholder="0:00"
               disabled={running}
+              aria-invalid={!!startErrorShown}
+              aria-describedby="trim-help"
             />
+            {startErrorShown && <span className="error-text">{startErrorShown}</span>}
           </label>
           <label className="field">
             Cut from end
             <input
-              className={trimEnd === null ? 'invalid' : ''}
+              id="trim-end"
+              inputMode="decimal"
               value={trimEndText}
               onChange={(e) => setTrimEndText(e.target.value)}
+              {...fieldHandlers('end')}
               placeholder="0:00"
               disabled={running}
+              aria-invalid={!!endErrorShown}
+              aria-describedby="trim-help"
             />
+            {endErrorShown && <span className="error-text">{endErrorShown}</span>}
           </label>
-          <div className="field hint-block">
-            {audio && trimValid && (
-              <span>
-                Keeps {fmtTime(trimStart!)} → {fmtTime(audio.info.duration - trimEnd!)} ({fmtTime(mainDuration)})
-              </span>
-            )}
-            {!trimValid && <span className="bad">Enter seconds (90) or minutes:seconds (1:30).</span>}
-          </div>
         </div>
-        <div className="field-row">
+        <p className="helper" id="trim-help">
+          {audio && trimValid
+            ? `Keeps ${fmtTime(trimStart!)} → ${fmtTime(audio.info.duration - trimEnd!)} (${fmtTime(mainDuration)}).`
+            : 'Seconds (90) or minutes:seconds (1:30).'}
+        </p>
+        <div className="row">
           <label className="check">
             <input type="checkbox" checked={normalize} onChange={(e) => setNormalize(e.target.checked)} disabled={running} />
             Normalize loudness
           </label>
-          <select
-            value={targetLufs}
-            onChange={(e) => setTargetLufs(Number(e.target.value))}
-            disabled={!normalize || running}
-          >
-            <option value={-14}>-14 LUFS · YouTube</option>
-            <option value={-16}>-16 LUFS · podcast standard</option>
-            <option value={-12}>-12 LUFS · louder</option>
-          </select>
-          <span className="muted-inline">Evens out the volume and keeps peaks below -1 dB.</span>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Video</h2>
-        </div>
-        <div className="field-row">
-          <label className="check">
-            <input type="checkbox" checked={compress} onChange={(e) => setCompress(e.target.checked)} disabled={running} />
-            Compress loop video
+          <label className="field">
+            Target loudness
+            <select value={targetLufs} onChange={(e) => setTargetLufs(Number(e.target.value))} disabled={!normalize || running}>
+              <option value={-14}>-14 LUFS · YouTube</option>
+              <option value={-16}>-16 LUFS · podcast standard</option>
+              <option value={-12}>-12 LUFS · louder</option>
+            </select>
           </label>
-          <select value={maxHeight} onChange={(e) => setMaxHeight(Number(e.target.value))} disabled={!compress || running}>
-            <option value={0}>Original size</option>
-            <option value={1080}>1080p</option>
-            <option value={720}>720p</option>
-          </select>
-          <select value={bitrate} onChange={(e) => setBitrate(Number(e.target.value))} disabled={!compress || running}>
-            {BITRATES.map((b) => (
-              <option key={b.value} value={b.value}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-          <span className="muted-inline">Smaller file, faster upload. Only the short clip is re-encoded.</span>
         </div>
+        <p className="helper">Evens out the volume and keeps peaks below -1 dB. Turn off for the fastest export.</p>
       </section>
 
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Episode &amp; file name</h2>
+      <section className="section" aria-labelledby="h-video">
+        <h2 id="h-video">Video</h2>
+        <label className="check">
+          <input type="checkbox" checked={compress} onChange={(e) => setCompress(e.target.checked)} disabled={running} />
+          Compress loop video
+        </label>
+        <div className="row">
+          <label className="field">
+            Resolution
+            <select value={maxHeight} onChange={(e) => setMaxHeight(Number(e.target.value))} disabled={!compress || running}>
+              <option value={0}>Original size</option>
+              <option value={1080}>1080p</option>
+              <option value={720}>720p</option>
+            </select>
+          </label>
+          <label className="field">
+            Bitrate
+            <select value={bitrate} onChange={(e) => setBitrate(Number(e.target.value))} disabled={!compress || running}>
+              {BITRATES.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-        <div className="field-row">
-          <label className="field grow">
+        <p className="helper">Smaller file, faster upload. Only the short clip is re-encoded.</p>
+      </section>
+
+      <section className="section" aria-labelledby="h-episode">
+        <h2 id="h-episode">Episode &amp; file name</h2>
+        <div className="row">
+          <label className="field">
             Show name
-            <input value={show} onChange={(e) => setShow(e.target.value)} placeholder="My Podcast" disabled={running} />
+            <input value={show} onChange={(e) => setShow(e.target.value)} placeholder="Core Concepts" disabled={running} />
           </label>
           <label className="field narrow">
             Episode
@@ -358,113 +415,130 @@ export default function App() {
               disabled={running}
             />
           </label>
-          <label className="field grow2">
-            Episode title
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What this episode is about" disabled={running} />
-          </label>
         </div>
-        <div className="field-row">
-          <label className="field grow">
-            Template
-            <input value={template} onChange={(e) => setTemplate(e.target.value)} disabled={running} />
+        <label className="field">
+          Episode title
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="REST vs gRPC" disabled={running} />
+        </label>
+        <div className="row">
+          <label className="field">
+            File name template
+            <input value={template} onChange={(e) => setTemplate(e.target.value)} disabled={running} aria-describedby="tpl-help" />
           </label>
-          <button className="btn small ghost" onClick={() => setTemplate(DEFAULT_TEMPLATE)} disabled={running}>
-            Reset
+          <button className="btn secondary" onClick={() => setTemplate(DEFAULT_TEMPLATE)} disabled={running || template === DEFAULT_TEMPLATE}>
+            Reset template
           </button>
         </div>
-        <p className="muted-inline">
-          Tokens: {TEMPLATE_TOKENS.map((t) => <code key={t}>{t}</code>)} — YouTube uses the file name as the initial
-          video title.
+        <p className="helper" id="tpl-help">
+          Tokens: {TEMPLATE_TOKENS.join(' ')}. YouTube uses the file name as the first video title.
         </p>
-        <div className="filename">
-          <span>File name</span>
-          <strong>{fileName}</strong>
-        </div>
+        <p className="filename">
+          <span className="helper">File name</span>
+          <span className="filename-value">{fileName}</span>
+        </p>
         <label className="check">
           <input type="checkbox" checked={bumpEpisode} onChange={(e) => setBumpEpisode(e.target.checked)} />
-          Increase the episode number when the next episode's audio is loaded
+          Increase the episode number when the next episode’s audio is loaded
         </label>
       </section>
 
-      {audio && video && (
-        <section className="panel">
-          <div className="summary">
-            <Stat label="Output length" value={fmtTime(totalDuration)} />
-            <Stat label="Loops" value={`≈ ${(mainDuration / video.info.duration).toFixed(1)}×`} />
-            <Stat label="Estimated size" value={fmtBytes(estimate)} />
-            <Stat
-              label="Processing"
-              value={!reencodeVideo && !reencodeAudio ? 'Copy only ⚡' : reencodeVideo && reencodeAudio ? 'Re-encode parts' : 'Mostly copy'}
-            />
+      {status.kind === 'done' && status.url && (
+        <section className="section" aria-labelledby="h-result">
+          <h2 id="h-result">Result</h2>
+          <div className="result">
+            <video src={status.url} controls />
           </div>
+        </section>
+      )}
 
-          {!savePicker && estimate > MEMORY_WARN_BYTES && (
-            <p className="warn">
-              This browser can't write straight to disk, so the result is kept in memory (~{fmtBytes(estimate)}). For big
-              files use Chrome or Edge, or turn on “Compress loop video”.
-            </p>
-          )}
+      <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
 
-          <div className="row">
+      <div className="actionbar" aria-live="polite">
+        {status.kind === 'error' && (
+          <ErrorNotice
+            message={status.message}
+            details={status.details}
+            actions={
+              <button className="btn secondary compact" onClick={generate}>
+                Try again
+              </button>
+            }
+          />
+        )}
+        {!savePicker && estimate > MEMORY_WARN_BYTES && (
+          <p className="notice warn">
+            This browser keeps the result in memory (~{fmtBytes(estimate)}). Turn on “Compress loop video” or use Chrome
+            or Edge for big files.
+          </p>
+        )}
+        {status.kind === 'running' && <Progress status={status} />}
+        {status.kind === 'done' && (
+          <p className="done-line">
+            Done in {status.seconds.toFixed(1)} s —{' '}
+            {status.url ? (
+              <>
+                <strong>{status.fileName}</strong> ({fmtBytes(status.size ?? 0)})
+              </>
+            ) : (
+              <>
+                saved as <strong>{status.fileName}</strong> in the folder you picked (usually Downloads).
+              </>
+            )}
+            {status.loudness && Number.isFinite(status.loudness.measured) && (
+              <span className="helper">
+                {' '}
+                Loudness {status.loudness.measured.toFixed(1)} → {(status.loudness.measured + status.loudness.gainDb).toFixed(1)} LUFS
+                {status.loudness.gainDb >= 29.9 && ' (very quiet recording — boost capped at +30 dB)'}.
+              </span>
+            )}
+          </p>
+        )}
+        <div className="actionbar-row">
+          <div className="actionbar-stats">
+            {audio && video ? (
+              <>
+                <span>
+                  Length <strong>{fmtTime(totalDuration)}</strong>
+                </span>
+                <span>
+                  Loops <strong>≈ {(mainDuration / video.info.duration).toFixed(1)}×</strong>
+                </span>
+                <span>
+                  Size <strong>≈ {fmtBytes(estimate)}</strong>
+                </span>
+                <span>
+                  <strong>{processing}</strong>
+                </span>
+              </>
+            ) : (
+              <span>Add an audio file and a loop video to create the video.</span>
+            )}
+          </div>
+          <div className="actionbar-buttons">
+            {status.kind === 'done' && status.url && (
+              <a className="btn secondary" href={status.url} download={status.fileName}>
+                Download MP4
+              </a>
+            )}
             {running ? (
-              <button className="btn ghost" onClick={() => abortRef.current?.abort()}>
-                Cancel
+              <button className="btn secondary" onClick={() => abortRef.current?.abort()}>
+                Cancel rendering
               </button>
             ) : (
-              <button className="btn" onClick={generate} disabled={!trimValid}>
+              <button className="btn" onClick={generate}>
                 {savePicker ? 'Create & save video' : 'Create video'}
               </button>
             )}
           </div>
+        </div>
+      </div>
 
-          {status.kind === 'running' && <Progress status={status} />}
-
-          {status.kind === 'done' && (
-            <div className="done">
-              <p>
-                ✅ Done in {status.seconds.toFixed(1)} s —{' '}
-                {status.url ? (
-                  <>
-                    <strong>{status.fileName}</strong> ({fmtBytes(status.size ?? 0)})
-                  </>
-                ) : (
-                  <>
-                    saved as <strong>{status.fileName}</strong> in the folder you picked (usually Downloads).
-                  </>
-                )}
-              </p>
-              {status.loudness && Number.isFinite(status.loudness.measured) && (
-                <p className="muted-inline">
-                  Loudness: {status.loudness.measured.toFixed(1)} LUFS →{' '}
-                  {(status.loudness.measured + status.loudness.gainDb).toFixed(1)} LUFS (
-                  {status.loudness.gainDb >= 0 ? '+' : ''}
-                  {status.loudness.gainDb.toFixed(1)} dB)
-                  {status.loudness.gainDb >= 29.9 && ' — the recording is very quiet; boost was capped at +30 dB.'}
-                </p>
-              )}
-              {status.url && (
-                <>
-                  <video src={status.url} controls className="result" />
-                  <a className="btn" href={status.url} download={status.fileName}>
-                    Download MP4
-                  </a>
-                </>
-              )}
-            </div>
-          )}
-        </section>
-      )}
-
-      {status.kind === 'error' && <p className="error">⚠️ {status.message}</p>}
-
-      <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
-
-      <footer>
+      <footer className="footer">
         Built with{' '}
         <a href="https://mediabunny.dev" target="_blank" rel="noreferrer">
           Mediabunny
-        </a>{' '}
-        · Nothing is uploaded anywhere.
+        </a>
+        . Nothing is uploaded anywhere.
       </footer>
     </main>
   );
@@ -474,22 +548,13 @@ function Progress({ status }: { status: Extract<Status, { kind: 'running' }> }) 
   const { elapsed, progress } = status;
   const eta = progress > 0.03 && elapsed > 1 ? elapsed / progress - elapsed : null;
   return (
-    <div className="progress">
+    <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
       <div className="bar">
-        <div style={{ width: `${(progress * 100).toFixed(1)}%` }} />
+        <div style={{ transform: `scaleX(${progress})` }} />
       </div>
       <span>
         {status.stage} · {(progress * 100).toFixed(0)}%{eta !== null ? ` · ~${Math.ceil(eta)} s left` : ''}
       </span>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="stat">
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }

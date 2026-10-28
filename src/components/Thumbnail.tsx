@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fmtBytes, fmtTime, load, save } from '../lib/format';
+import { FileButton, useConfirm } from './ui';
 import { FONTS, ensureFont, fontCss, type FontKey } from './thumbFonts';
 
 const W = 1280;
@@ -88,6 +89,7 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { confirm, dialog } = useConfirm();
 
   const fill = (template: string) =>
     template
@@ -190,205 +192,221 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
   };
 
   const hasSource = !!image || !!props.video;
+  const col = s.position[1] as 'l' | 'c' | 'r';
+  const row = s.position[0] as 't' | 'm' | 'b';
+  const setPos = (r: string, c: string) => set('position', `${r}${c}` as Pos);
+
+  const resetStyle = async () => {
+    if (await confirm('Reset thumbnail style?', 'Fonts, colors, layout and background adjustments go back to the defaults. Your logo and texts stay.', 'Reset style'))
+      setS({ ...THUMB_DEFAULTS, logo: s.logo, frameTime: s.frameTime, bigText: s.bigText, smallText: s.smallText });
+  };
+  const removeLogo = async () => {
+    if (await confirm('Remove the logo?', 'The saved logo is deleted from this browser. You can add it again later.', 'Remove logo'))
+      set('logo', null);
+  };
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Thumbnail</h2>
-        <span className="muted-inline">1280×720 · settings are remembered for the next episode</span>
+    <section className="section" aria-labelledby="h-thumb">
+      <div className="section-head">
+        <h2 id="h-thumb">Thumbnail</h2>
       </div>
       {!hasSource ? (
-        <p className="muted left">Add a loop video (or an image) to design a thumbnail.</p>
+        <div className="empty">
+          <p>Design a 1280×720 thumbnail from a frame of your loop video or any image.</p>
+          <p className="helper">Add a loop video above, or start from an image.</p>
+          <div>
+            <FileButton className="btn" accept="image/*" label="Choose an image" onFile={(f) => f && setImage(f)} />
+          </div>
+        </div>
       ) : (
         <div className="thumb">
-          <div className="thumb-stage">
-            <div className="thumb-frame">
-              <canvas ref={canvasRef} width={W} height={H} className="thumb-canvas" />
-              {s.guides && (
-                <div className="guide-badge" title="YouTube shows the video length here">
-                  12:34
-                </div>
-              )}
-            </div>
-            <div className="thumb-mini">
-              <canvas ref={miniRef} width={320} height={180} />
-              <div>
-                <strong>How it looks in the feed</strong>
-                <span className="muted-inline">Small text should still be readable at this size.</span>
+          <div className="thumb-frame">
+            <canvas ref={canvasRef} width={W} height={H} className="thumb-canvas" aria-label="Thumbnail preview" />
+            {s.guides && (
+              <div className="guide-badge" aria-hidden="true">
+                12:34
               </div>
-            </div>
+            )}
+          </div>
+          <div className="thumb-mini">
+            <canvas ref={miniRef} width={320} height={180} aria-hidden="true" />
+            <p className="helper">Feed size. If the small text is hard to read here, make it bigger.</p>
           </div>
 
-          <div className="thumb-controls">
-            <Group title="Text" open>
-              <label className="field">
-                Big text
-                <input value={s.bigText} onChange={(e) => set('bigText', e.target.value)} placeholder="EPISODE {n}" />
+          <Group title="Text" open>
+            <label className="field">
+              Big text
+              <input value={s.bigText} onChange={(e) => set('bigText', e.target.value)} placeholder="EPISODE {n}" />
+            </label>
+            <div className="trio">
+              <FontSelect label="Font" value={s.bigFont} onChange={(v) => set('bigFont', v)} />
+              <ColorInput label="Color" value={s.bigColor} onChange={(v) => set('bigColor', v)} />
+              <label className="check">
+                <input type="checkbox" checked={s.bigUpper} onChange={(e) => set('bigUpper', e.target.checked)} />
+                Uppercase
               </label>
-              <div className="field-row tight">
-                <FontSelect value={s.bigFont} onChange={(v) => set('bigFont', v)} />
-                <ColorInput value={s.bigColor} onChange={(v) => set('bigColor', v)} />
-                <Toggle label="ABC" title="Uppercase" checked={s.bigUpper} onChange={(v) => set('bigUpper', v)} />
-              </div>
-              <Range label="Big text size" value={s.bigSize} min={60} max={260} onChange={(v) => set('bigSize', v)} />
+            </div>
+            <Range label="Size" value={s.bigSize} min={60} max={260} onChange={(v) => set('bigSize', v)} suffix=" px" />
 
+            <label className="field">
+              Small text
+              <input value={s.smallText} onChange={(e) => set('smallText', e.target.value)} placeholder="{title}" />
+            </label>
+            <div className="trio">
+              <FontSelect label="Font" value={s.smallFont} onChange={(v) => set('smallFont', v)} />
+              <ColorInput label="Color" value={s.smallColor} onChange={(v) => set('smallColor', v)} />
+              <label className="check">
+                <input type="checkbox" checked={s.smallUpper} onChange={(e) => set('smallUpper', e.target.checked)} />
+                Uppercase
+              </label>
+            </div>
+            <Range label="Size" value={s.smallSize} min={24} max={110} onChange={(v) => set('smallSize', v)} suffix=" px" />
+            <p className="helper">Tokens {TOKENS_HINT} are filled from the episode fields.</p>
+          </Group>
+
+          <Group title="Layout" open>
+            <div className="grid-3">
+              <label className="field">
+                Horizontal
+                <select value={col} onChange={(e) => setPos(row, e.target.value)}>
+                  <option value="l">Left</option>
+                  <option value="c">Center</option>
+                  <option value="r">Right</option>
+                </select>
+              </label>
+              <label className="field">
+                Vertical
+                <select value={row} onChange={(e) => setPos(e.target.value, col)}>
+                  <option value="t">Top</option>
+                  <option value="m">Middle</option>
+                  <option value="b">Bottom</option>
+                </select>
+              </label>
               <label className="field">
                 Small text
-                <input value={s.smallText} onChange={(e) => set('smallText', e.target.value)} placeholder="{title}" />
+                <select value={s.smallPlacement} onChange={(e) => set('smallPlacement', e.target.value as 'below' | 'above')}>
+                  <option value="below">Below big text</option>
+                  <option value="above">Above big text</option>
+                </select>
               </label>
-              <div className="field-row tight">
-                <FontSelect value={s.smallFont} onChange={(v) => set('smallFont', v)} />
-                <ColorInput value={s.smallColor} onChange={(v) => set('smallColor', v)} />
-                <Toggle label="ABC" title="Uppercase" checked={s.smallUpper} onChange={(v) => set('smallUpper', v)} />
-              </div>
-              <Range label="Small text size" value={s.smallSize} min={24} max={110} onChange={(v) => set('smallSize', v)} />
-              <p className="muted-inline">
-                Tokens: <code>{TOKENS_HINT}</code> — filled from the episode fields above.
-              </p>
-            </Group>
+            </div>
+            <div className="row">
+              <label className="field">
+                Text effect
+                <select value={s.effect} onChange={(e) => set('effect', e.target.value as ThumbSettings['effect'])}>
+                  <option value="shadow">Shadow</option>
+                  <option value="outline">Outline</option>
+                  <option value="box">Highlight box</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              {s.effect === 'box' && <ColorInput label="Box color" value={s.boxColor} onChange={(v) => set('boxColor', v)} />}
+            </div>
+          </Group>
 
-            <Group title="Layout & style" open>
-              <div className="field-row tight align-start">
-                <div className="field">
-                  Position
-                  <div className="pos-grid">
-                    {(['tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br'] as Pos[]).map((p) => (
-                      <button
-                        key={p}
-                        className={s.position === p ? 'on' : ''}
-                        onClick={() => set('position', p)}
-                        aria-label={`Position ${p}`}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="field grow">
-                  Small text
-                  <select value={s.smallPlacement} onChange={(e) => set('smallPlacement', e.target.value as 'below' | 'above')}>
-                    <option value="below">Below big text</option>
-                    <option value="above">Above big text</option>
-                  </select>
-                  Text effect
-                  <div className="field-row tight">
-                    <select className="grow-select" value={s.effect} onChange={(e) => set('effect', e.target.value as ThumbSettings['effect'])}>
-                      <option value="shadow">Shadow</option>
-                      <option value="outline">Outline</option>
-                      <option value="box">Highlight box</option>
-                      <option value="none">None</option>
-                    </select>
-                    {s.effect === 'box' && <ColorInput value={s.boxColor} onChange={(v) => set('boxColor', v)} />}
-                  </div>
-                </div>
-              </div>
-            </Group>
-
-            <Group title="Background">
-              <div className="field-row tight">
-                <select
-                  className="grow-select"
-                  value={image ? 'image' : 'video'}
-                  onChange={(e) => e.target.value === 'video' && setImage(null)}
-                >
+          <Group title="Background">
+            <div className="row">
+              <label className="field">
+                Background
+                <select value={image ? 'image' : 'video'} onChange={(e) => e.target.value === 'video' && setImage(null)}>
                   <option value="video" disabled={!props.video}>
                     Frame from loop video
                   </option>
                   {image && <option value="image">{image.name}</option>}
                 </select>
-                <label className="btn small ghost">
-                  Use image…
-                  <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && setImage(e.target.files[0])} />
-                </label>
-              </div>
-              {!image && videoUrl && (
-                <Range
-                  label={`Frame at ${fmtTime(frameTime)}`}
-                  value={frameTime}
-                  min={0}
-                  max={Math.max(0, duration - 0.05)}
-                  step={0.04}
-                  onChange={(v) => set('frameTime', v)}
-                  hideValue
-                />
-              )}
+              </label>
+              <FileButton className="btn secondary" accept="image/*" label="Use an image" onFile={(f) => f && setImage(f)} />
+            </div>
+            {!image && videoUrl && (
+              <Range
+                label={`Frame at ${fmtTime(frameTime)}`}
+                value={frameTime}
+                min={0}
+                max={Math.max(0, duration - 0.05)}
+                step={0.04}
+                onChange={(v) => set('frameTime', v)}
+                hideValue
+              />
+            )}
+            <div className="grid-2">
               <Range label="Zoom" value={s.zoom} min={1} max={2.5} step={0.05} onChange={(v) => set('zoom', v)} suffix="×" />
-              <div className="field-row tight">
-                <Range label="Pan ↔" value={s.focusX} min={0} max={100} onChange={(v) => set('focusX', v)} hideValue />
-                <Range label="Pan ↕" value={s.focusY} min={0} max={100} onChange={(v) => set('focusY', v)} hideValue />
-              </div>
-              <div className="field-row tight">
-                <Range label="Brightness" value={s.brightness} min={40} max={160} onChange={(v) => set('brightness', v)} suffix="%" />
-                <Range label="Blur" value={s.blur} min={0} max={24} onChange={(v) => set('blur', v)} suffix="px" />
-              </div>
-              <div className="field-row tight">
-                <label className="field grow">
-                  Overlay
-                  <select value={s.overlay} onChange={(e) => set('overlay', e.target.value as ThumbSettings['overlay'])}>
-                    <option value="gradient">Gradient from the text side</option>
-                    <option value="solid">Solid tint</option>
-                    <option value="none">None</option>
-                  </select>
-                </label>
-                <ColorInput value={s.overlayColor} onChange={(v) => set('overlayColor', v)} />
-              </div>
-              {s.overlay !== 'none' && (
-                <Range label="Overlay strength" value={s.shade} min={0} max={90} onChange={(v) => set('shade', v)} suffix="%" />
-              )}
-            </Group>
+              <Range label="Brightness" value={s.brightness} min={40} max={160} onChange={(v) => set('brightness', v)} suffix="%" />
+              <Range label="Move left / right" value={s.focusX} min={0} max={100} onChange={(v) => set('focusX', v)} suffix="%" />
+              <Range label="Move up / down" value={s.focusY} min={0} max={100} onChange={(v) => set('focusY', v)} suffix="%" />
+              <Range label="Blur" value={s.blur} min={0} max={24} onChange={(v) => set('blur', v)} suffix=" px" />
+            </div>
+            <div className="row">
+              <label className="field">
+                Overlay
+                <select value={s.overlay} onChange={(e) => set('overlay', e.target.value as ThumbSettings['overlay'])}>
+                  <option value="gradient">Gradient from the text side</option>
+                  <option value="solid">Solid tint</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              <ColorInput label="Overlay color" value={s.overlayColor} onChange={(v) => set('overlayColor', v)} />
+            </div>
+            {s.overlay !== 'none' && (
+              <Range label="Overlay strength" value={s.shade} min={0} max={90} onChange={(v) => set('shade', v)} suffix="%" />
+            )}
+          </Group>
 
-            <Group title="Logo">
-              <div className="field-row tight">
-                <label className="btn small ghost">
-                  {s.logo ? 'Replace logo…' : 'Add logo…'}
-                  <input type="file" accept="image/*" hidden onChange={(e) => pickLogo(e.target.files?.[0])} />
-                </label>
-                {s.logo && (
-                  <button className="btn small ghost" onClick={() => set('logo', null)}>
-                    Remove
-                  </button>
-                )}
-                {s.logo && (
+          <Group title="Logo">
+            {!s.logo && <p className="helper">Add your channel logo; it is remembered for the next episodes.</p>}
+            <div className="row">
+              <FileButton className="btn secondary" accept="image/*" label={s.logo ? 'Replace logo' : 'Add logo'} onFile={pickLogo} />
+              {s.logo && (
+                <button className="btn secondary" onClick={removeLogo}>
+                  Remove logo
+                </button>
+              )}
+            </div>
+            {s.logo && (
+              <div className="grid-2">
+                <label className="field">
+                  Corner
                   <select value={s.logoCorner} onChange={(e) => set('logoCorner', e.target.value as Corner)}>
                     <option value="tl">Top left</option>
                     <option value="tr">Top right</option>
                     <option value="bl">Bottom left</option>
                     <option value="br">Bottom right</option>
                   </select>
-                )}
+                </label>
+                <Range label="Logo size" value={s.logoSize} min={5} max={35} onChange={(v) => set('logoSize', v)} suffix="%" />
               </div>
-              {s.logo && <Range label="Logo size" value={s.logoSize} min={5} max={35} onChange={(v) => set('logoSize', v)} suffix="%" />}
-              {s.logo && s.logoCorner === 'br' && (
-                <p className="warn small">YouTube covers the bottom-right corner with the video length.</p>
-              )}
-            </Group>
+            )}
+            {s.logo && s.logoCorner === 'br' && (
+              <p className="notice warn">YouTube covers the bottom-right corner with the video length. Pick another corner.</p>
+            )}
+          </Group>
 
-            <div className="field-row tight">
+          <div className="row">
+            <label className="field narrow-2">
+              Format
               <select value={s.format} onChange={(e) => set('format', e.target.value as 'jpg' | 'png')}>
-                <option value="jpg">JPG (≤ 2 MB)</option>
+                <option value="jpg">JPG (under 2 MB)</option>
                 <option value="png">PNG</option>
               </select>
-              <button className="btn" onClick={download}>
-                Download thumbnail
-              </button>
-            </div>
-            <div className="field-row tight">
-              <label className="check small">
-                <input type="checkbox" checked={s.guides} onChange={(e) => set('guides', e.target.checked)} />
-                Show YouTube length badge
-              </label>
-              <button
-                className="btn small ghost"
-                onClick={() => setS({ ...THUMB_DEFAULTS, logo: s.logo, frameTime: s.frameTime })}
-              >
-                Reset style
-              </button>
-            </div>
-            {exported && (
-              <p className="muted-inline">
-                Saved “{exported.name}” · {fmtBytes(exported.size)}
-                {s.format === 'png' && exported.size > MAX_BYTES && ' — over 2 MB, use JPG for YouTube'}
-              </p>
-            )}
+            </label>
+            <button className="btn" onClick={download}>
+              Download thumbnail
+            </button>
           </div>
+          <div className="row spread">
+            <label className="check">
+              <input type="checkbox" checked={s.guides} onChange={(e) => set('guides', e.target.checked)} />
+              Show where YouTube puts the length badge
+            </label>
+            <button className="btn secondary" onClick={resetStyle}>
+              Reset style
+            </button>
+          </div>
+          {exported && (
+            <p className="helper" aria-live="polite">
+              Saved “{exported.name}” · {fmtBytes(exported.size)}
+              {s.format === 'png' && exported.size > MAX_BYTES && ' — over 2 MB; choose JPG for YouTube.'}
+            </p>
+          )}
 
           {videoUrl && (
             <video
@@ -403,6 +421,7 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
           )}
         </div>
       )}
+      {dialog}
     </section>
   );
 }
@@ -429,8 +448,8 @@ function Range(props: {
   onChange: (v: number) => void;
 }) {
   return (
-    <label className="field grow">
-      <span>
+    <label className="field">
+      <span className="range-label">
         {props.label}
         {!props.hideValue && (
           <span className="range-value">
@@ -451,32 +470,27 @@ function Range(props: {
   );
 }
 
-function FontSelect(props: { value: FontKey; onChange: (v: FontKey) => void }) {
+function FontSelect(props: { label: string; value: FontKey; onChange: (v: FontKey) => void }) {
   return (
-    <select className="grow-select" value={props.value} onChange={(e) => props.onChange(e.target.value as FontKey)}>
-      {(Object.keys(FONTS) as FontKey[]).map((k) => (
-        <option key={k} value={k}>
-          {FONTS[k].label}
-        </option>
-      ))}
-    </select>
+    <label className="field">
+      {props.label}
+      <select value={props.value} onChange={(e) => props.onChange(e.target.value as FontKey)}>
+        {(Object.keys(FONTS) as FontKey[]).map((k) => (
+          <option key={k} value={k}>
+            {FONTS[k].label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
-function ColorInput(props: { value: string; onChange: (v: string) => void }) {
-  return <input type="color" value={props.value} onChange={(e) => props.onChange(e.target.value)} />;
-}
-
-function Toggle(props: { label: string; title: string; checked: boolean; onChange: (v: boolean) => void }) {
+function ColorInput(props: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <button
-      className={`toggle ${props.checked ? 'on' : ''}`}
-      title={props.title}
-      aria-pressed={props.checked}
-      onClick={() => props.onChange(!props.checked)}
-    >
+    <label className="field color-field">
       {props.label}
-    </button>
+      <input type="color" value={props.value} onChange={(e) => props.onChange(e.target.value)} />
+    </label>
   );
 }
 

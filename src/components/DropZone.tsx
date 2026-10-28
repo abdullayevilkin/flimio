@@ -1,27 +1,31 @@
 import { useState, type ReactNode } from 'react';
 import type { MediaInfo } from '../lib/probe';
 import { fmtBytes, fmtTime } from '../lib/format';
+import { FileButton } from './ui';
 
 export type Picked = { file: File; info: MediaInfo; url: string } | null;
 
 export function DropZone(props: {
+  id?: string;
   label: string;
   hint: string;
   accept: string;
   picked: Picked;
   loading: boolean;
   disabled: boolean;
-  optional?: boolean;
-  compact?: boolean;
+  required?: boolean;
+  error?: string | null;
   onFile: (f: File | undefined) => void;
   onClear?: () => void;
   children?: ReactNode;
 }) {
   const [over, setOver] = useState(false);
   const { picked } = props;
+  const errorId = props.id ? `${props.id}-error` : undefined;
   return (
     <div
-      className={`drop ${over ? 'over' : ''} ${picked ? 'has' : ''} ${props.compact ? 'compact' : ''}`}
+      id={props.id}
+      className={`drop ${over ? 'over' : ''} ${picked ? 'has' : ''} ${props.error ? 'invalid' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);
@@ -34,50 +38,43 @@ export function DropZone(props: {
       }}
     >
       <div className="drop-head">
-        <strong>
+        <span className="drop-title">
           {props.label}
-          {props.optional && <span className="tag">optional</span>}
-        </strong>
+          <span className="meta">{props.required ? '(required)' : '(optional)'}</span>
+        </span>
         <div className="drop-actions">
           {picked && props.onClear && (
-            <button className="btn small ghost" onClick={props.onClear} disabled={props.disabled}>
+            <button className="btn secondary compact" onClick={props.onClear} disabled={props.disabled}>
               Remove
             </button>
           )}
-          <label className={`btn small ghost ${props.disabled ? 'disabled' : ''}`}>
-            {picked ? 'Replace' : 'Choose file'}
-            <input
-              type="file"
-              accept={props.accept}
-              hidden
-              disabled={props.disabled}
-              onChange={(e) => {
-                props.onFile(e.target.files?.[0]);
-                e.target.value = '';
-              }}
-            />
-          </label>
+          <FileButton
+            accept={props.accept}
+            label={picked ? 'Replace' : 'Choose file'}
+            ariaLabel={`${picked ? 'Replace' : 'Choose'} ${props.label.toLowerCase()} file`}
+            disabled={props.disabled}
+            onFile={props.onFile}
+          />
         </div>
       </div>
-      {props.loading && <p className="muted">Reading…</p>}
-      {!picked && !props.loading && (
-        <p className="muted">
-          Drop a file here or choose one
-          <br />
-          <small>{props.hint}</small>
-        </p>
-      )}
+      {props.loading && <p className="drop-empty" aria-live="polite">Reading file…</p>}
+      {!picked && !props.loading && <p className="drop-empty">{props.hint} Drop a file here or choose one.</p>}
       {picked && (
         <>
-          <p className="file" title={picked.file.name}>
+          <p className="file-name" title={picked.file.name}>
             {picked.file.name}
           </p>
           <p className="meta">
             {fmtTime(picked.info.duration)} · {picked.info.codec ?? '?'} · {fmtBytes(picked.info.size)}
             {picked.info.width ? ` · ${picked.info.width}×${picked.info.height}` : ''}
           </p>
-          {props.children && <div className="preview">{props.children}</div>}
+          {props.children}
         </>
+      )}
+      {props.error && (
+        <p className="error-text" id={errorId}>
+          {props.error}
+        </p>
       )}
     </div>
   );

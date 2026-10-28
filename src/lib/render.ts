@@ -89,14 +89,14 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   try {
     const audioTrack = await open(opts.audio).getPrimaryAudioTrack();
     const clipTrack = await open(opts.video).getPrimaryVideoTrack();
-    if (!audioTrack) throw new Error('The audio file has no audio track.');
-    if (!clipTrack) throw new Error('The loop video has no video track.');
+    if (!audioTrack) throw new Error('The audio file has no audio track. Choose another audio file.');
+    if (!clipTrack) throw new Error('The loop video has no video track. Choose another video file.');
     const introInput = opts.intro ? open(opts.intro) : null;
     const outroInput = opts.outro ? open(opts.outro) : null;
     const introTrack = introInput ? await introInput.getPrimaryVideoTrack() : null;
     const outroTrack = outroInput ? await outroInput.getPrimaryVideoTrack() : null;
-    if (introInput && !introTrack) throw new Error('The intro file has no video track.');
-    if (outroInput && !outroTrack) throw new Error('The outro file has no video track.');
+    if (introInput && !introTrack) throw new Error('The intro file has no video track. Choose another file or remove the intro.');
+    if (outroInput && !outroTrack) throw new Error('The outro file has no video track. Choose another file or remove the outro.');
 
     const format = new Mp4OutputFormat({ fastStart: false });
 
@@ -105,7 +105,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     const trimStart = clamp(opts.trimStart ?? 0, 0, audioEnd);
     const mainEnd = clamp(audioEnd - (opts.trimEnd ?? 0), trimStart, audioEnd);
     const mainDuration = mainEnd - trimStart;
-    if (mainDuration < 1) throw new Error('The trimmed audio is shorter than 1 second.');
+    if (mainDuration < 1) throw new Error('Cut less from the start or end — less than 1 second of audio would remain.');
 
     const encodeVideo = !!(opts.compress || introTrack || outroTrack);
     const encodeAudio = !!(opts.normalize || introTrack || outroTrack);
@@ -157,7 +157,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
       audioPlan = { kind: 'encode', outRate, outCh, introPcm, outroPcm, gainDb, normalize: !!opts.normalize };
     } else {
       if (!audioTrack.codec || !format.getSupportedAudioCodecs().includes(audioTrack.codec)) {
-        throw new Error(`This audio codec can't go into MP4: ${audioTrack.codec ?? 'unknown'}`);
+        throw new Error(`This audio format (${audioTrack.codec ?? 'unknown'}) can't be saved in MP4 as-is. Turn on “Normalize loudness” to convert it.`);
       }
       audioPlan = { kind: 'copy' };
     }
@@ -255,12 +255,12 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 /** Reads the clip's packets as-is (stream copy). */
 async function copyClip(format: Mp4OutputFormat, track: InputVideoTrack): Promise<PreparedVideo> {
   if (!track.codec || !format.getSupportedVideoCodecs().includes(track.codec)) {
-    throw new Error(`This video codec can't go into MP4: ${track.codec ?? 'unknown'}`);
+    throw new Error(`This video format (${track.codec ?? 'unknown'}) can't be saved in MP4 as-is. Turn on “Compress loop video” to convert it.`);
   }
   const all: EncodedPacket[] = [];
   for await (const p of new EncodedPacketSink(track).packets()) all.push(p);
   const firstKey = all.findIndex((p) => p.type === 'key');
-  if (firstKey < 0) throw new Error('The loop video has no key frame.');
+  if (firstKey < 0) throw new Error('The loop video can’t be looped as-is. Turn on “Compress loop video” to re-encode it.');
   const packets = all.slice(firstKey);
 
   const durations = packets.map((p) => p.duration).filter((d) => d > 0).sort((a, b) => a - b);
@@ -269,7 +269,7 @@ async function copyClip(format: Mp4OutputFormat, track: InputVideoTrack): Promis
   const end = Math.max(...packets.map((p) => p.timestamp + (p.duration > 0 ? p.duration : frameDur)));
 
   const config = await track.getDecoderConfig();
-  if (!config) throw new Error('Could not read the video decoder config.');
+  if (!config) throw new Error('Could not read the loop video’s format. Turn on “Compress loop video” to re-encode it.');
   return {
     codec: track.codec,
     decoderConfig: config,
@@ -308,7 +308,7 @@ async function encodeVideoParts(
     preferred.filter((c) => format.getSupportedVideoCodecs().includes(c)),
     { width, height, bitrate },
   );
-  if (!codec) throw new Error('This browser cannot encode video (try Chrome or Edge).');
+  if (!codec) throw new Error('This browser can’t encode video. Use Chrome or Edge, or turn off compression and intro/outro.');
 
   const packets: EncodedPacket[] = [];
   let decoderConfig: VideoDecoderConfig | null = null;
@@ -353,12 +353,12 @@ async function encodeVideoParts(
       end = Math.max(end, ts + frame.duration);
       onProgress(Math.min(0.99, end / totalDur));
     }
-    if (!n) throw new Error('Could not decode frames from one of the videos.');
+    if (!n) throw new Error('Could not read frames from one of the videos. Re-export that clip as an H.264 MP4 and try again.');
     ranges.push({ start, end });
     t = end;
   }
   await scratch.finalize();
-  if (!decoderConfig) throw new Error('The video encoder produced no config.');
+  if (!decoderConfig) throw new Error('Video encoder produced no decoder config.');
 
   const segment = (r: { start: number; end: number } | null): Segment | null => {
     if (!r) return null;
