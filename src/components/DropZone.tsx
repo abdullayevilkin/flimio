@@ -16,6 +16,8 @@ export function DropZone(props: {
   required?: boolean;
   error?: string | null;
   note?: string | null;
+  /** Feature unavailable (e.g. Fast mode): fade everything except the explanation. */
+  dimmed?: boolean;
   onFile: (f: File | undefined) => void;
   onClear?: () => void;
   children?: ReactNode;
@@ -26,7 +28,8 @@ export function DropZone(props: {
   return (
     <div
       id={props.id}
-      className={`drop ${over ? 'over' : ''} ${picked ? 'has' : ''} ${props.error ? 'invalid' : ''}`}
+      className={`drop ${over ? 'over' : ''} ${picked ? 'has' : ''} ${props.error ? 'invalid' : ''} ${props.dimmed ? 'off' : ''}`}
+      aria-disabled={props.dimmed || undefined}
       onDragOver={(e) => {
         e.preventDefault();
         setOver(true);

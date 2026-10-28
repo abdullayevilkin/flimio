@@ -313,6 +313,7 @@ export default function App() {
             picked={files.intro}
             loading={loading === 'intro'}
             disabled={running || fastMode}
+            dimmed={fastMode}
             note={fastMode && files.intro ? 'Not used in Fast mode.' : null}
             error={fileError.intro}
             onFile={(f) => pick('intro', f)}
@@ -325,6 +326,7 @@ export default function App() {
             picked={files.outro}
             loading={loading === 'outro'}
             disabled={running || fastMode}
+            dimmed={fastMode}
             note={fastMode && files.outro ? 'Not used in Fast mode.' : null}
             error={fileError.outro}
             onFile={(f) => pick('outro', f)}
@@ -372,7 +374,7 @@ export default function App() {
             ? `Keeps ${fmtTime(trimStart!)} → ${fmtTime(audio.info.duration - trimEnd!)} (${fmtTime(mainDuration)}).`
             : 'Seconds (90) or minutes:seconds (1:30).'}
         </p>
-        <div className="row">
+        <div className={`row ${fastMode ? 'off' : ''}`}>
           <label className="check">
             <input type="checkbox" checked={useNormalize} onChange={(e) => setNormalize(e.target.checked)} disabled={running || fastMode} />
             Normalize loudness
@@ -395,6 +397,7 @@ export default function App() {
 
       <section className="section" aria-labelledby="h-video">
         <h2 id="h-video">Video</h2>
+        <div className={`feature ${fastMode ? 'off' : ''}`}>
         <label className="check">
           <input type="checkbox" checked={useCompress} onChange={(e) => setCompress(e.target.checked)} disabled={running || fastMode} />
           Compress loop video
@@ -418,6 +421,7 @@ export default function App() {
               ))}
             </select>
           </label>
+        </div>
         </div>
         <p className="helper">
           {fastMode

@@ -160,6 +160,16 @@ input[type='range'] { width: 100%; height: var(--hit); margin: 0; accent-color: 
 .drop audio { width: 100%; }
 .drop video { width: 100%; max-height: 180px; border-radius: var(--radius); background: #000; display: block; object-fit: contain; }
 
+/* ---- unavailable features (Fast mode) ----
+   The whole block fades, not just the inputs; the explanation next to it stays readable. */
+.feature { display: flex; flex-direction: column; gap: var(--space-4); }
+.off { opacity: 0.4; }
+.off, .off * { cursor: not-allowed !important; }
+.off input:disabled, .off select:disabled, .off .btn:disabled { opacity: 1; }
+.drop.off { opacity: 1; border-style: dashed; background: transparent; box-shadow: none; }
+.drop.off > :not(.drop-empty):not(.helper) { opacity: 0.4; }
+.drop.off > .drop-empty, .drop.off > .helper { color: var(--text-muted); }
+
 /* ---- sticky action bar (L2) ---- */
 .actionbar {
   position: sticky; bottom: 0; z-index: 10;
