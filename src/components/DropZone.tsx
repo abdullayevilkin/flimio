@@ -59,7 +59,12 @@ export function DropZone(props: {
         </div>
       </div>
       {props.loading && <p className="drop-empty" aria-live="polite">Reading file…</p>}
-      {!picked && !props.loading && <p className="drop-empty">{props.hint} Drop a file here or choose one.</p>}
+      {!picked && !props.loading && (
+        <p className="drop-empty">
+          {props.hint}
+          {!props.disabled && ' Drop a file here or choose one.'}
+        </p>
+      )}
       {picked && (
         <>
           <p className="file-name" title={picked.file.name}>
