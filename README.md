@@ -1,6 +1,6 @@
 # Flimio
 
-**Live:** https://abdullayevilkin.github.io/flimio/
+**Live:** https://abdullayevilkin.github.io/flimio/ · **Simple / fast version:** https://abdullayevilkin.github.io/flimio/simple.html
 
 Turn a long audio recording (e.g. a 10–20 minute podcast in `.m4a`) and a short looping video (e.g. a 10 second `.mp4`) into an MP4 ready for YouTube. Runs entirely in the browser — files never leave your computer.
 
@@ -12,7 +12,8 @@ Turn a long audio recording (e.g. a 10–20 minute podcast in `.m4a`) and a shor
 - **Intro & outro** — optional clips played before/after the episode with their own sound; other sizes are letterboxed.
 - **Compress loop video** — re-encode only the short clip to 1080p/720p at 1–5 Mbps for a much smaller file and faster upload.
 - **File name template** — `{show} - Episode {n} - {title}` (tokens `{show}`, `{n}`, `{nn}`, `{title}`, `{date}`); also written into the MP4 title metadata. The episode number goes up when the next episode's audio is loaded.
-- **Thumbnail generator** — a frame from the loop video (or any image) plus title text, exported as a 1280×720 JPG under 2 MB.
+- **Thumbnail generator** — a frame from the loop video (or any image) with a big text (e.g. `EPISODE {n}`) and a small text (e.g. `{title}`); 6 bundled fonts (Anton, Bebas Neue, Oswald, Montserrat, Inter, Playfair), 9 positions, shadow / outline / highlight box, zoom & pan, brightness, blur, overlay, logo, feed-size preview and the YouTube length badge guide. Exports 1280×720 JPG (≤ 2 MB) or PNG. All style settings are remembered in the browser for the next episode.
+- **Simple version** (`simple.html`) — the original copy-only page: audio + loop video, nothing else.
 
 ## How it works
 
@@ -37,6 +38,7 @@ npm run build    # dist/
 - `src/lib/loudness.ts` — loudness meter and limiter
 - `src/lib/naming.ts` — file name template
 - `src/components/Thumbnail.tsx` — thumbnail generator
+- `src/simple/` — the simple, copy-only version
 
 ## Deploy
 

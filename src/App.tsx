@@ -200,6 +200,11 @@ export default function App() {
 
   return (
     <main className="wrap">
+      <nav className="topnav">
+        <a href="./simple.html" title="The previous copy-only version: audio + loop video, nothing else">
+          Old / simple / fast version →
+        </a>
+      </nav>
       <header>
         <h1>Flimio</h1>
         <p className="sub">
@@ -452,12 +457,7 @@ export default function App() {
 
       {status.kind === 'error' && <p className="error">⚠️ {status.message}</p>}
 
-      <Thumbnail
-        video={video?.file ?? null}
-        defaultTitle={title}
-        defaultKicker={show || episode ? [show, `Episode ${episode}`].filter(Boolean).join(' · ') : ''}
-        baseName={baseName}
-      />
+      <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
 
       <footer>
         Built with{' '}

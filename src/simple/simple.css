@@ -1,0 +1,85 @@
+:root {
+  --bg: #0e1014;
+  --card: #171a21;
+  --line: #262b36;
+  --text: #e8eaf0;
+  --muted: #8b93a7;
+  --accent: #7c5cff;
+  --accent-2: #4fd1c5;
+  --danger: #ff6b6b;
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+
+.wrap { max-width: 920px; margin: 0 auto; padding: 48px 20px 32px; }
+header h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.02em; }
+.sub { margin: 0 0 28px; color: var(--muted); line-height: 1.5; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+
+.drop {
+  background: var(--card);
+  border: 1.5px dashed var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  min-height: 190px;
+  transition: border-color .15s, background .15s;
+  display: flex; flex-direction: column;
+}
+.drop.over { border-color: var(--accent); background: #1c1a2e; }
+.drop.has { border-style: solid; }
+.drop-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.muted { color: var(--muted); text-align: center; margin: auto 0; line-height: 1.6; }
+.file { margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta { margin: 4px 0 12px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.preview audio { width: 100%; }
+.preview video { width: 100%; max-height: 200px; border-radius: 10px; background: #000; display: block; object-fit: contain; }
+
+.panel { margin-top: 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+@media (max-width: 700px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+.stat { background: #11141a; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.stat span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.stat strong { font-variant-numeric: tabular-nums; }
+
+.row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.name { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.name input {
+  background: #11141a; border: 1px solid var(--line); border-radius: 10px; color: var(--text);
+  padding: 11px 12px; font-size: 15px; outline: none;
+}
+.name input:focus { border-color: var(--accent); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--accent), #5b8cff);
+  color: white; border: 0; border-radius: 10px; padding: 12px 20px;
+  font-weight: 600; font-size: 15px; cursor: pointer; text-decoration: none;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+.btn.small { padding: 6px 12px; font-size: 13px; }
+
+.progress { margin-top: 18px; display: flex; align-items: center; gap: 12px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
+.bar { flex: 1; height: 10px; background: #11141a; border-radius: 99px; overflow: hidden; border: 1px solid var(--line); }
+.bar > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .15s; }
+
+.done { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.done p { margin: 0; }
+.result { width: 100%; max-height: 360px; border-radius: 10px; background: #000; }
+
+.warn { color: #f6c560; background: #2a2414; border: 1px solid #4a3d18; padding: 10px 12px; border-radius: 10px; font-size: 14px; margin: 0 0 16px; }
+.error { color: var(--danger); background: #2a1616; border: 1px solid #4a2020; padding: 12px; border-radius: 10px; margin-top: 16px; }
+
+footer { margin-top: 36px; color: var(--muted); font-size: 13px; text-align: center; }
+footer a { color: var(--accent-2); }
+
+.topnav { display: flex; justify-content: flex-end; margin: -24px 0 16px; font-size: 13px; }
+.topnav a { color: var(--accent-2); text-decoration: none; border: 1px solid var(--line); border-radius: 99px; padding: 5px 12px; }
+.topnav a:hover { border-color: var(--accent-2); }
