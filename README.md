@@ -1,10 +1,12 @@
 # Flimio
 
-**Live:** https://abdullayevilkin.github.io/flimio/ · **Simple / fast version:** https://abdullayevilkin.github.io/flimio/simple.html
+**Live:** https://abdullayevilkin.github.io/flimio/
 
 Turn a long audio recording (e.g. a 10–20 minute podcast in `.m4a`) and a short looping video (e.g. a 10 second `.mp4`) into an MP4 ready for YouTube. Runs entirely in the browser — files never leave your computer.
 
 ## Features
+
+- **Fast mode** (on by default) — audio and video are copied without re-encoding, so a 20-minute video is ready in seconds. Trim, file name template and thumbnail still work. Turn it off for loudness normalization, clip compression and intro/outro, which re-encode and take minutes.
 
 - **Loop video over audio** — the clip repeats until the audio ends, cut exactly at the end.
 - **Trim audio** — cut seconds (or `m:ss`) from the start and the end.
@@ -13,7 +15,6 @@ Turn a long audio recording (e.g. a 10–20 minute podcast in `.m4a`) and a shor
 - **Compress loop video** — re-encode only the short clip to 1080p/720p at 1–5 Mbps for a much smaller file and faster upload.
 - **File name template** — `{show} - Episode {n} - {title}` (tokens `{show}`, `{n}`, `{nn}`, `{title}`, `{date}`); also written into the MP4 title metadata. The episode number goes up when the next episode's audio is loaded.
 - **Thumbnail generator** — a frame from the loop video (or any image) with a big text (e.g. `EPISODE {n}`) and a small text (e.g. `{title}`); 6 bundled fonts (Anton, Bebas Neue, Oswald, Montserrat, Inter, Playfair), 9 positions, shadow / outline / highlight box, zoom & pan, brightness, blur, overlay, logo, feed-size preview and the YouTube length badge guide. Exports 1280×720 JPG (≤ 2 MB) or PNG. All style settings are remembered in the browser for the next episode.
-- **Simple version** (`simple.html`) — the original copy-only page: audio + loop video, nothing else.
 
 ## How it works
 
@@ -38,7 +39,6 @@ npm run build    # dist/
 - `src/lib/loudness.ts` — loudness meter and limiter
 - `src/lib/naming.ts` — file name template
 - `src/components/Thumbnail.tsx` — thumbnail generator
-- `src/simple/` — the simple, copy-only version
 
 ## Deploy
 

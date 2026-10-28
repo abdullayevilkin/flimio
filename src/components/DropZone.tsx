@@ -15,6 +15,7 @@ export function DropZone(props: {
   disabled: boolean;
   required?: boolean;
   error?: string | null;
+  note?: string | null;
   onFile: (f: File | undefined) => void;
   onClear?: () => void;
   children?: ReactNode;
@@ -71,6 +72,7 @@ export function DropZone(props: {
           {props.children}
         </>
       )}
+      {props.note && <p className="helper">{props.note}</p>}
       {props.error && (
         <p className="error-text" id={errorId}>
           {props.error}

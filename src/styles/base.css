@@ -81,9 +81,7 @@ a { color: var(--accent-text); }
 :focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
 /* ---- page (Form page pattern: narrow column) ---- */
-.page { width: 100%; max-width: calc(var(--page) + 2 * var(--space-4)); margin: 0 auto; padding: var(--space-6) var(--space-4) 0; }
-.topnav { display: flex; justify-content: flex-end; min-height: var(--hit); align-items: center; font-size: var(--text-secondary); }
-.topnav a { display: inline-flex; align-items: center; min-height: var(--hit); text-underline-offset: 3px; }
+.page { width: 100%; max-width: calc(var(--page) + 2 * var(--space-4)); margin: 0 auto; padding: var(--space-12) var(--space-4) 0; }
 .page-head { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 var(--space-8); }
 .lede { color: var(--text-muted); max-width: 65ch; }
 

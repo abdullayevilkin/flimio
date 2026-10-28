@@ -49,6 +49,8 @@ export default function App() {
   const [trimStartText, setTrimStartText] = useState(() => load('trimStart', '0'));
   const [trimEndText, setTrimEndText] = useState(() => load('trimEnd', '0'));
   const [trimUi, setTrimUi] = useState({ start: { touched: false, editing: false }, end: { touched: false, editing: false } });
+  // Fast mode = the original copy-only pipeline: no re-encoding, a 20-minute video in seconds.
+  const [fastMode, setFastMode] = useState(() => load('fastMode', true));
   const [normalize, setNormalize] = useState(() => load('normalize', true));
   const [targetLufs, setTargetLufs] = useState(() => load('targetLufs', -14));
   // video
@@ -65,12 +67,17 @@ export default function App() {
   // so the thumbnail made right after an export still shows the right episode.
   const [pendingBump, setPendingBump] = useState(() => load('pendingBump', false));
 
-  const persisted = { trimStart: trimStartText, trimEnd: trimEndText, normalize, targetLufs, compress, maxHeight, bitrate, show, episode, title, template, bumpEpisode, pendingBump };
+  const persisted = { fastMode, trimStart: trimStartText, trimEnd: trimEndText, normalize, targetLufs, compress, maxHeight, bitrate, show, episode, title, template, bumpEpisode, pendingBump };
   useEffect(() => {
     for (const [k, v] of Object.entries(persisted)) save(k, v);
   });
 
-  const { audio, video, intro, outro } = files;
+  const { audio, video } = files;
+  // Features that need re-encoding are ignored in Fast mode.
+  const intro = fastMode ? null : files.intro;
+  const outro = fastMode ? null : files.outro;
+  const useNormalize = !fastMode && normalize;
+  const useCompress = !fastMode && compress;
   const running = status.kind === 'running';
 
   // Warn before leaving with work in progress (files can't be restored after a reload).
@@ -109,8 +116,8 @@ export default function App() {
 
   const mainDuration = audio && trimValid ? audio.info.duration - trimStart! - trimEnd! : audio?.info.duration ?? 0;
   const totalDuration = mainDuration + (intro?.info.duration ?? 0) + (outro?.info.duration ?? 0);
-  const reencodeVideo = compress || !!intro || !!outro;
-  const reencodeAudio = normalize || !!intro || !!outro;
+  const reencodeVideo = useCompress || !!intro || !!outro;
+  const reencodeAudio = useNormalize || !!intro || !!outro;
 
   const estimate = useMemo(() => {
     if (!audio || !video || !mainDuration) return 0;
@@ -120,11 +127,11 @@ export default function App() {
       mainDuration,
       clipSize: video.info.size,
       clipDuration: video.info.duration,
-      compressBitrate: compress ? bitrate : null,
+      compressBitrate: useCompress ? bitrate : null,
       reencodeAudio,
       extraSize: (intro?.info.size ?? 0) + (outro?.info.size ?? 0),
     });
-  }, [audio, video, intro, outro, mainDuration, compress, bitrate, reencodeAudio]);
+  }, [audio, video, intro, outro, mainDuration, useCompress, bitrate, reencodeAudio]);
 
   const pick = async (slot: Slot, file: File | undefined) => {
     if (!file) return;
@@ -199,8 +206,8 @@ export default function App() {
         outro: outro?.file,
         trimStart: trimStart!,
         trimEnd: trimEnd!,
-        normalize: normalize ? { targetLufs } : null,
-        compress: compress ? { maxHeight: maxHeight || null, bitrate } : null,
+        normalize: useNormalize ? { targetLufs } : null,
+        compress: useCompress ? { maxHeight: maxHeight || null, bitrate } : null,
         title: baseName,
         writable,
         signal: ctrl.signal,
@@ -242,13 +249,10 @@ export default function App() {
   }, [status]);
 
   const processing =
-    !reencodeVideo && !reencodeAudio ? 'Copy only (fastest)' : reencodeVideo && reencodeAudio ? 'Re-encodes audio and clip' : reencodeAudio ? 'Re-encodes audio' : 'Re-encodes clip';
+    !reencodeVideo && !reencodeAudio ? (fastMode ? 'Fast mode · no re-encoding' : 'Copy only (fastest)') : reencodeVideo && reencodeAudio ? 'Re-encodes audio and clip' : reencodeAudio ? 'Re-encodes audio' : 'Re-encodes clip';
 
   return (
     <main className="page">
-      <nav className="topnav" aria-label="Versions">
-        <a href="./simple.html">Open simple version (fast, copy-only)</a>
-      </nav>
       <header className="page-head">
         <h1>Flimio</h1>
         <p className="lede">
@@ -256,6 +260,20 @@ export default function App() {
           browser — your files never leave your computer.
         </p>
       </header>
+
+      <div className={`mode ${fastMode ? 'on' : ''}`}>
+        <label className="check">
+          <input type="checkbox" checked={fastMode} onChange={(e) => setFastMode(e.target.checked)} disabled={running} />
+          <span>
+            <strong>Fast mode</strong> — no re-encoding
+          </span>
+        </label>
+        <p className="helper">
+          {fastMode
+            ? 'Audio and video are copied as-is, so a 20-minute video is ready in seconds. Trim, file name and thumbnail still work. Turn off to use loudness normalization, clip compression, intro and outro — those re-encode and take minutes.'
+            : 'Loudness normalization, clip compression, intro and outro are available. They re-encode the audio or video, so exporting takes minutes instead of seconds.'}
+        </p>
+      </div>
 
       <section className="section" aria-labelledby="h-files">
         <h2 id="h-files">Files</h2>
@@ -290,22 +308,24 @@ export default function App() {
           </DropZone>
           <DropZone
             label="Intro"
-            hint="Plays before the episode, with its own sound."
+            hint={fastMode ? 'Turn off Fast mode to add an intro.' : 'Plays before the episode, with its own sound.'}
             accept="video/*,.mp4,.mov,.webm"
-            picked={intro}
+            picked={files.intro}
             loading={loading === 'intro'}
-            disabled={running}
+            disabled={running || fastMode}
+            note={fastMode && files.intro ? 'Not used in Fast mode.' : null}
             error={fileError.intro}
             onFile={(f) => pick('intro', f)}
             onClear={() => clear('intro')}
           />
           <DropZone
             label="Outro"
-            hint="Plays after the episode — handy for end screens."
+            hint={fastMode ? 'Turn off Fast mode to add an outro.' : 'Plays after the episode — handy for end screens.'}
             accept="video/*,.mp4,.mov,.webm"
-            picked={outro}
+            picked={files.outro}
             loading={loading === 'outro'}
-            disabled={running}
+            disabled={running || fastMode}
+            note={fastMode && files.outro ? 'Not used in Fast mode.' : null}
             error={fileError.outro}
             onFile={(f) => pick('outro', f)}
             onClear={() => clear('outro')}
@@ -354,31 +374,35 @@ export default function App() {
         </p>
         <div className="row">
           <label className="check">
-            <input type="checkbox" checked={normalize} onChange={(e) => setNormalize(e.target.checked)} disabled={running} />
+            <input type="checkbox" checked={useNormalize} onChange={(e) => setNormalize(e.target.checked)} disabled={running || fastMode} />
             Normalize loudness
           </label>
           <label className="field">
             Target loudness
-            <select value={targetLufs} onChange={(e) => setTargetLufs(Number(e.target.value))} disabled={!normalize || running}>
+            <select value={targetLufs} onChange={(e) => setTargetLufs(Number(e.target.value))} disabled={!useNormalize || running}>
               <option value={-14}>-14 LUFS · YouTube</option>
               <option value={-16}>-16 LUFS · podcast standard</option>
               <option value={-12}>-12 LUFS · louder</option>
             </select>
           </label>
         </div>
-        <p className="helper">Evens out the volume and keeps peaks below -1 dB. Turn off for the fastest export.</p>
+        <p className="helper">
+          {fastMode
+            ? 'Turn off Fast mode to normalize loudness.'
+            : 'Evens out the volume and keeps peaks below -1 dB. Re-encodes the audio, so exporting takes minutes.'}
+        </p>
       </section>
 
       <section className="section" aria-labelledby="h-video">
         <h2 id="h-video">Video</h2>
         <label className="check">
-          <input type="checkbox" checked={compress} onChange={(e) => setCompress(e.target.checked)} disabled={running} />
+          <input type="checkbox" checked={useCompress} onChange={(e) => setCompress(e.target.checked)} disabled={running || fastMode} />
           Compress loop video
         </label>
         <div className="row">
           <label className="field">
             Resolution
-            <select value={maxHeight} onChange={(e) => setMaxHeight(Number(e.target.value))} disabled={!compress || running}>
+            <select value={maxHeight} onChange={(e) => setMaxHeight(Number(e.target.value))} disabled={!useCompress || running}>
               <option value={0}>Original size</option>
               <option value={1080}>1080p</option>
               <option value={720}>720p</option>
@@ -386,7 +410,7 @@ export default function App() {
           </label>
           <label className="field">
             Bitrate
-            <select value={bitrate} onChange={(e) => setBitrate(Number(e.target.value))} disabled={!compress || running}>
+            <select value={bitrate} onChange={(e) => setBitrate(Number(e.target.value))} disabled={!useCompress || running}>
               {BITRATES.map((b) => (
                 <option key={b.value} value={b.value}>
                   {b.label}
@@ -395,7 +419,11 @@ export default function App() {
             </select>
           </label>
         </div>
-        <p className="helper">Smaller file, faster upload. Only the short clip is re-encoded.</p>
+        <p className="helper">
+          {fastMode
+            ? 'Turn off Fast mode to compress the loop video.'
+            : 'Smaller file, faster upload. Only the short clip is re-encoded.'}
+        </p>
       </section>
 
       <section className="section" aria-labelledby="h-episode">
@@ -467,8 +495,8 @@ export default function App() {
         )}
         {!savePicker && estimate > MEMORY_WARN_BYTES && (
           <p className="notice warn">
-            This browser keeps the result in memory (~{fmtBytes(estimate)}). Turn on “Compress loop video” or use Chrome
-            or Edge for big files.
+            This browser keeps the result in memory (~{fmtBytes(estimate)}). Use Chrome or Edge for big files
+            {fastMode ? '.' : ', or turn on “Compress loop video”.'}
           </p>
         )}
         {status.kind === 'running' && <Progress status={status} />}
