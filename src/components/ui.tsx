@@ -131,3 +131,87 @@ export function describeError(e: unknown, fallback: string): { message: string; 
   const friendly = /^(This |The |Choose |Cut |Use |Could not )/.test(raw);
   return { message: friendly ? raw : fallback, details };
 }
+
+/** Numbered section header: makes each part of the form read as its own step. */
+export function SectionHead(props: { id: string; n?: number; title: string; sub?: string }) {
+  return (
+    <div className="section-head">
+      {props.n !== undefined && (
+        <span className="step" aria-hidden="true">
+          {props.n}
+        </span>
+      )}
+      <div className="section-titles">
+        <h2 id={props.id} tabIndex={-1}>
+          {props.title}
+        </h2>
+        {props.sub && <p className="helper">{props.sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Sticky in-page tabs: jump to a section; the one in view is highlighted (scroll-spy). */
+export function SectionNav(props: { items: { id: string; label: string }[] }) {
+  const [active, setActive] = useState(props.items[0]?.id);
+  const listRef = useRef<HTMLOListElement>(null);
+
+  // Keep the active tab visible when the tab row scrolls sideways (narrow screens).
+  useEffect(() => {
+    const list = listRef.current;
+    const link = list?.querySelector<HTMLElement>('a[aria-current]');
+    if (!list || !link) return;
+    const left = link.offsetLeft - list.offsetLeft;
+    if (left < list.scrollLeft || left + link.offsetWidth > list.scrollLeft + list.clientWidth) {
+      list.scrollTo({ left: Math.max(0, left - 16) });
+    }
+  }, [active]);
+
+  useEffect(() => {
+    const els = props.items.map((i) => document.getElementById(i.id)).filter((e): e is HTMLElement => !!e);
+    const update = () => {
+      // the last section whose top has passed the nav line is the current one
+      const line = 120;
+      let current = els[0]?.id;
+      for (const el of els) if (el.getBoundingClientRect().top - line <= 0) current = el.id;
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+      if (atBottom && els.length) current = els[els.length - 1].id;
+      setActive(current);
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [props.items]);
+
+  return (
+    <nav className="sectionnav" aria-label="Sections">
+      <ol ref={listRef}>
+        {props.items.map((item, i) => (
+          <li key={item.id}>
+            <a
+              href={`#${item.id}`}
+              aria-current={active === item.id ? 'step' : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                const el = document.getElementById(item.id);
+                const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                el?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+                history.replaceState(null, '', `#${item.id}`);
+                el?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
+              }}
+            >
+              <span className="step small" aria-hidden="true">
+                {i + 1}
+              </span>
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}

@@ -80,7 +80,7 @@ export function DropZone(props: {
           {props.children}
         </>
       )}
-      {props.note && <p className="helper">{props.note}</p>}
+      {props.note && <p className={props.dimmed ? 'fast-note' : 'helper'}>{props.note}</p>}
       {props.error && (
         <p className="error-text" id={errorId}>
           {props.error}

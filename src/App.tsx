@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DropZone, type Picked } from './components/DropZone';
 import { Thumbnail } from './components/Thumbnail';
-import { ErrorNotice, describeError } from './components/ui';
+import { ErrorNotice, SectionHead, SectionNav, describeError } from './components/ui';
 import { fmtBytes, fmtTime, load, parseTime, save } from './lib/format';
 import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, toFileName } from './lib/naming';
 import { probeAudio, probeVideo } from './lib/probe';
@@ -275,8 +275,18 @@ export default function App() {
         </p>
       </div>
 
-      <section className="section" aria-labelledby="h-files">
-        <h2 id="h-files">Files</h2>
+      <SectionNav
+        items={[
+          { id: 'files', label: 'Files' },
+          { id: 'audio', label: 'Audio' },
+          { id: 'video', label: 'Video' },
+          { id: 'episode', label: 'Episode' },
+          { id: 'thumbnail', label: 'Thumbnail' },
+        ]}
+      />
+
+      <section className="section" id="files" aria-labelledby="h-files">
+        <SectionHead id="h-files" n={1} title="Files" sub="Your recording, the clip to loop, and an optional intro and outro." />
         <div className="grid-2">
           <DropZone
             id="drop-audio"
@@ -335,8 +345,8 @@ export default function App() {
         </div>
       </section>
 
-      <section className="section" aria-labelledby="h-audio">
-        <h2 id="h-audio">Audio</h2>
+      <section className="section" id="audio" aria-labelledby="h-audio">
+        <SectionHead id="h-audio" n={2} title="Audio" sub="Trim the recording and even out its volume." />
         <div className="row">
           <label className="field">
             Cut from start
@@ -388,15 +398,15 @@ export default function App() {
             </select>
           </label>
         </div>
-        <p className="helper">
-          {fastMode
-            ? 'Turn off Fast mode to normalize loudness.'
-            : 'Evens out the volume and keeps peaks below -1 dB. Re-encodes the audio, so exporting takes minutes.'}
-        </p>
+        {fastMode ? (
+          <p className="fast-note">Turn off Fast mode to normalize loudness.</p>
+        ) : (
+          <p className="helper">Evens out the volume and keeps peaks below -1 dB. Re-encodes the audio, so exporting takes minutes.</p>
+        )}
       </section>
 
-      <section className="section" aria-labelledby="h-video">
-        <h2 id="h-video">Video</h2>
+      <section className="section" id="video" aria-labelledby="h-video">
+        <SectionHead id="h-video" n={3} title="Video" sub="Make the loop clip smaller for a faster upload." />
         <div className={`feature ${fastMode ? 'off' : ''}`}>
         <label className="check">
           <input type="checkbox" checked={useCompress} onChange={(e) => setCompress(e.target.checked)} disabled={running || fastMode} />
@@ -423,15 +433,15 @@ export default function App() {
           </label>
         </div>
         </div>
-        <p className="helper">
-          {fastMode
-            ? 'Turn off Fast mode to compress the loop video.'
-            : 'Smaller file, faster upload. Only the short clip is re-encoded.'}
-        </p>
+        {fastMode ? (
+          <p className="fast-note">Turn off Fast mode to compress the loop video.</p>
+        ) : (
+          <p className="helper">Smaller file, faster upload. Only the short clip is re-encoded.</p>
+        )}
       </section>
 
-      <section className="section" aria-labelledby="h-episode">
-        <h2 id="h-episode">Episode &amp; file name</h2>
+      <section className="section" id="episode" aria-labelledby="h-episode">
+        <SectionHead id="h-episode" n={4} title="Episode & file name" sub="Name the file the way YouTube will first show it." />
         <div className="row">
           <label className="field">
             Show name
@@ -476,7 +486,7 @@ export default function App() {
 
       {status.kind === 'done' && status.url && (
         <section className="section" aria-labelledby="h-result">
-          <h2 id="h-result">Result</h2>
+          <SectionHead id="h-result" title="Result" sub="Preview the video before you download it." />
           <div className="result">
             <video src={status.url} controls />
           </div>

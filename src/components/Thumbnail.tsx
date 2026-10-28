@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fmtBytes, fmtTime, load, save } from '../lib/format';
-import { FileButton, useConfirm } from './ui';
+import { FileButton, SectionHead, useConfirm } from './ui';
 import { FONTS, ensureFont, fontCss, type FontKey } from './thumbFonts';
 
 const W = 1280;
@@ -206,10 +206,8 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
   };
 
   return (
-    <section className="section" aria-labelledby="h-thumb">
-      <div className="section-head">
-        <h2 id="h-thumb">Thumbnail</h2>
-      </div>
+    <section className="section" id="thumbnail" aria-labelledby="h-thumb">
+      <SectionHead id="h-thumb" n={5} title="Thumbnail" sub="Design the image people click on. Style settings are remembered." />
       {!hasSource ? (
         <div className="empty">
           <p>Design a 1280×720 thumbnail from a frame of your loop video or any image.</p>

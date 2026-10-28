@@ -47,6 +47,7 @@
 .row.spread { justify-content: space-between; align-items: center; }
 
 /* ---- fast mode switch ---- */
-.mode { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-8); padding: var(--space-2) var(--space-4) var(--space-4); background: var(--surface-1); border: 1px solid var(--border-1); border-radius: var(--radius-lg); box-shadow: var(--edge-light); }
+.mode { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-6); padding: var(--space-2) var(--space-4) var(--space-4); background: var(--surface-1); border: 1px solid var(--border-1); border-radius: var(--radius-lg); box-shadow: var(--edge-light); }
 .mode.on { border-color: var(--accent); }
 .mode .check strong { font-weight: 600; }
+.mode.on .helper { color: var(--fast); }
