@@ -36,3 +36,14 @@ export function toFileName(name: string, ext = '.mp4'): string {
     .slice(0, 180);
   return (clean || 'video') + ext;
 }
+
+/** "1_guard_clause.m4a" / "1_-_guard_clause" → "Guard clause" (drops extension and leading number, underscores/dashes → spaces). */
+export function titleFromFileName(fileName: string): string {
+  const t = fileName
+    .replace(/\.[a-z0-9]{2,4}$/i, '')
+    .replace(/^\s*\d+(?=[\s._-]|$)[\s._-]*/, '')
+    .replace(/[_\s]*-+[_\s]*|_+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}

@@ -3,7 +3,7 @@ import { DropZone, type Picked } from './components/DropZone';
 import { Thumbnail } from './components/Thumbnail';
 import { ErrorNotice, FoldButton, SectionHead, SectionNav, describeError, useFold } from './components/ui';
 import { fmtBytes, fmtTime, load, parseTime, save } from './lib/format';
-import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, toFileName } from './lib/naming';
+import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, titleFromFileName, toFileName } from './lib/naming';
 import { probeAudio, probeVideo } from './lib/probe';
 import { estimateSize, render } from './lib/render';
 import './styles/base.css';
@@ -153,9 +153,13 @@ export default function App() {
         if (prev[slot]) URL.revokeObjectURL(prev[slot]!.url);
         return { ...prev, [slot]: picked };
       });
+      if (slot === 'audio') {
+        const t = titleFromFileName(file.name);
+        if (t) setTitle(t);
+        else if (pendingBump) setTitle('');
+      }
       if (slot === 'audio' && pendingBump) {
         if (bumpEpisode) setEpisode((n) => n + 1);
-        setTitle('');
         setTrimStartText('0');
         setTrimEndText('0');
         setPendingBump(false);
@@ -293,6 +297,7 @@ export default function App() {
           { id: 'video', label: 'Video' },
           { id: 'episode', label: 'Episode' },
           { id: 'thumbnail', label: 'Thumbnail' },
+          { id: 'youtube', label: 'YouTube' },
         ]}
       />
 
@@ -512,11 +517,14 @@ export default function App() {
         </section>
       )}
 
-      {status.kind === 'done' && (
-        <YouTube key={status.fileName + status.seconds} getFile={status.getFile} defaultTitle={status.fileName.replace(/\.mp4$/i, '')} size={status.size} />
-      )}
-
       <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
+
+      <YouTube
+        key={status.kind === 'done' ? status.fileName + status.seconds : 'none'}
+        getFile={status.kind === 'done' ? status.getFile : null}
+        defaultTitle={status.kind === 'done' ? status.fileName.replace(/\.mp4$/i, '') : ''}
+        size={status.kind === 'done' ? status.size : null}
+      />
 
       <div className="actionbar" aria-live="polite">
         {status.kind === 'error' && (

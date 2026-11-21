@@ -11,7 +11,7 @@ type State =
   | { kind: 'done'; video: Uploaded }
   | { kind: 'error'; message: string; details: string };
 
-export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: string; size: number | null }) {
+export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultTitle: string; size: number | null }) {
   const [clientId, setClientId] = useState<string>(() => load('yt.clientId', ENV_CLIENT_ID));
   const [title, setTitle] = useState(props.defaultTitle);
   const [description, setDescription] = useState<string>(() => load('yt.description', ''));
@@ -31,7 +31,7 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
   const uploading = state.kind === 'uploading';
 
   const upload = async () => {
-    if (!id || !titleOk) return;
+    if (!id || !titleOk || !props.getFile) return;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
@@ -41,7 +41,7 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
         setSession(s);
       }
       setState({ kind: 'uploading', progress: 0 });
-      const file = await props.getFile();
+      const file = await props.getFile!();
       const video = await uploadVideo(file, { title: title.trim(), description, privacy }, s, (progress) => setState({ kind: 'uploading', progress }), ctrl.signal);
       setState({ kind: 'done', video });
     } catch (e) {
@@ -56,8 +56,9 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
   };
 
   return (
-    <section className={fold.cls} aria-labelledby="h-youtube">
-      <SectionHead id="h-youtube" fold={fold} title="Publish to YouTube" sub="Upload the finished video straight from your browser. The file goes from here to YouTube only." />
+    <section className={fold.cls} id="youtube" aria-labelledby="h-youtube">
+      <SectionHead id="h-youtube" fold={fold} n={6} title="Publish to YouTube" sub="Upload the finished video straight from your browser. The file goes from here to YouTube only." />
+      {!props.getFile && <p className="fast-note keep">Create the video first (steps 1–4, then “Create video”). Then this section can upload it.</p>}
 
       <div className="row" style={{ alignItems: "flex-start" }}>
         <label className="field" style={{ flex: '2 1 280px' }}>
@@ -140,7 +141,7 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
             Cancel upload
           </button>
         ) : (
-          <button className="btn" onClick={upload} disabled={!id || !titleOk}>
+          <button className="btn" onClick={upload} disabled={!id || !titleOk || !props.getFile}>
             {session ? 'Upload to YouTube' : 'Sign in & upload to YouTube'}
           </button>
         )}
