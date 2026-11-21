@@ -7,6 +7,7 @@ import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, toFileName } from './
 import { probeAudio, probeVideo } from './lib/probe';
 import { estimateSize, render } from './lib/render';
 import './styles/base.css';
+import { YouTube } from './components/YouTube';
 import './App.css';
 
 type Slot = 'audio' | 'video' | 'intro' | 'outro';
@@ -20,6 +21,7 @@ type Status =
       seconds: number;
       size: number | null;
       loudness?: { measured: number; gainDb: number };
+      getFile: () => Promise<Blob>;
     }
   | { kind: 'error'; message: string; details: string };
 
@@ -183,9 +185,10 @@ export default function App() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     let writable: FileSystemWritableFileStream | undefined;
+    let handle: FileSystemFileHandle | undefined;
     if (savePicker) {
       try {
-        const handle = await savePicker({
+        handle = await savePicker({
           suggestedName: fileName,
           types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
         });
@@ -221,6 +224,7 @@ export default function App() {
         seconds: (performance.now() - startedAt) / 1000,
         size: res.blob?.size ?? null,
         loudness: res.loudness,
+        getFile: async () => res.blob ?? (await handle!.getFile()),
       });
       setPendingBump(true);
     } catch (e) {
@@ -493,6 +497,10 @@ export default function App() {
         </section>
       )}
 
+      {status.kind === 'done' && (
+        <YouTube key={status.fileName + status.seconds} getFile={status.getFile} defaultTitle={status.fileName.replace(/\.mp4$/i, '')} size={status.size} />
+      )}
+
       <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
 
       <div className="actionbar" aria-live="polite">
@@ -580,7 +588,7 @@ export default function App() {
         <a href="https://mediabunny.dev" target="_blank" rel="noreferrer">
           Mediabunny
         </a>
-        . Nothing is uploaded anywhere.
+        . Nothing is uploaded anywhere unless you publish to YouTube yourself.
       </footer>
     </main>
   );

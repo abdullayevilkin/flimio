@@ -15,6 +15,7 @@ Turn a long audio recording (e.g. a 10–20 minute podcast in `.m4a`) and a shor
 - **Compress loop video** — re-encode only the short clip to 1080p/720p at 1–5 Mbps for a much smaller file and faster upload.
 - **File name template** — `{show} - Episode {n} - {title}` (tokens `{show}`, `{n}`, `{nn}`, `{title}`, `{date}`); also written into the MP4 title metadata. The episode number goes up when the next episode's audio is loaded.
 - **Thumbnail generator** — a frame from the loop video (or any image) with a big text (e.g. `EPISODE {n}`) and a small text (e.g. `{title}`); 6 bundled fonts (Anton, Bebas Neue, Oswald, Montserrat, Inter, Playfair), 9 positions, shadow / outline / highlight box, zoom & pan, brightness, blur, overlay, logo, feed-size preview and the YouTube length badge guide. Exports 1280×720 JPG (≤ 2 MB) or PNG. All style settings are remembered in the browser for the next episode.
+- **Publish to YouTube** — after the video is created, sign in with Google and upload it straight from the browser (title, description, visibility). It uses the YouTube Data API v3 resumable upload; the file goes from your browser to YouTube only. You need your own Google OAuth *Web application* client ID (paste it in the page, or set `VITE_GOOGLE_CLIENT_ID` at build time) with this site listed under Authorized JavaScript origins.
 
 ## How it works
 
@@ -39,6 +40,7 @@ npm run build    # dist/
 - `src/lib/loudness.ts` — loudness meter and limiter
 - `src/lib/naming.ts` — file name template
 - `src/components/Thumbnail.tsx` — thumbnail generator
+- `src/components/YouTube.tsx`, `src/lib/youtube.ts` — Google sign-in and YouTube upload
 
 ## Deploy
 
