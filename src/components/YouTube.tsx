@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fmtBytes, load, save } from '../lib/format';
 import { signIn, signOut, uploadVideo, type Privacy, type Session, type Uploaded } from '../lib/youtube';
-import { ErrorNotice, SectionHead, describeError } from './ui';
+import { ErrorNotice, SectionHead, describeError, useFold } from './ui';
 
 const ENV_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
 
@@ -19,6 +19,7 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
   const [session, setSession] = useState<Session | null>(null);
   const [state, setState] = useState<State>({ kind: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
+  const fold = useFold();
 
   useEffect(() => save('yt.clientId', clientId), [clientId]);
   useEffect(() => save('yt.description', description), [description]);
@@ -55,8 +56,8 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
   };
 
   return (
-    <section className="section" aria-labelledby="h-youtube">
-      <SectionHead id="h-youtube" title="Publish to YouTube" sub="Upload the finished video straight from your browser. The file goes from here to YouTube only." />
+    <section className={fold.cls} aria-labelledby="h-youtube">
+      <SectionHead id="h-youtube" fold={fold} title="Publish to YouTube" sub="Upload the finished video straight from your browser. The file goes from here to YouTube only." />
 
       <div className="row" style={{ alignItems: "flex-start" }}>
         <label className="field" style={{ flex: '2 1 280px' }}>

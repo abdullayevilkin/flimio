@@ -258,3 +258,25 @@ html { scroll-behavior: smooth; }
   dialog.confirm[open] { animation: fade-in 100ms linear; }
   @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 }
+
+/* collapsible sections */
+.section-head .push { margin-left: auto; }
+.fold-btn {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: var(--hit); height: var(--hit); margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-muted); cursor: pointer;
+}
+.fold-btn:hover { background: var(--surface-2); color: var(--text); }
+.fold-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 0; }
+.fold-btn svg { transition: transform var(--fast-ms, 150ms) ease; }
+.fold-btn[aria-expanded='false'] svg { transform: rotate(-90deg); }
+.section.collapsed { gap: var(--space-3); }
+.section.collapsed > :not(.section-head):not(.keep) { display: none; }
+.section.collapsed .section-head { padding-bottom: 0; border-bottom: 0; }
+.section.collapsed .section-head .helper { display: none; }
+.subfold { display: flex; flex-direction: column; gap: var(--space-3); }
+.subfold-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.subfold-head .fold-btn { margin: 0; }
+.subfold-body { display: flex; flex-direction: column; gap: var(--space-3); }
+.subfold.collapsed .subfold-body { display: none; }
+@media (prefers-reduced-motion: reduce) { .fold-btn svg { transition: none; } }

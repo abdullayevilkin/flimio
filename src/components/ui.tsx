@@ -133,7 +133,30 @@ export function describeError(e: unknown, fallback: string): { message: string; 
 }
 
 /** Numbered section header: makes each part of the form read as its own step. */
-export function SectionHead(props: { id: string; n?: number; title: string; sub?: string }) {
+/** Open/closed state for a collapsible section; `cls` goes on the <section>. */
+export function useFold(initial = true) {
+  const [open, setOpen] = useState(initial);
+  return { open, setOpen, toggle: () => setOpen((o) => !o), cls: open ? 'section' : 'section collapsed' };
+}
+
+export function FoldButton(props: { open: boolean; onClick: () => void; label: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      className={`fold-btn ${props.className ?? ''}`}
+      aria-expanded={props.open}
+      aria-label={`${props.open ? 'Collapse' : 'Expand'} ${props.label}`}
+      title={`${props.open ? 'Collapse' : 'Expand'} ${props.label}`}
+      onClick={props.onClick}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+export function SectionHead(props: { id: string; n?: number; title: string; sub?: string; fold?: { open: boolean; toggle: () => void } }) {
   return (
     <div className="section-head">
       {props.n !== undefined && (
@@ -147,6 +170,7 @@ export function SectionHead(props: { id: string; n?: number; title: string; sub?
         </h2>
         {props.sub && <p className="helper">{props.sub}</p>}
       </div>
+      {props.fold && <FoldButton open={props.fold.open} onClick={props.fold.toggle} label={props.title} className="push" />}
     </div>
   );
 }

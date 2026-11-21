@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DropZone, type Picked } from './components/DropZone';
 import { Thumbnail } from './components/Thumbnail';
-import { ErrorNotice, SectionHead, SectionNav, describeError } from './components/ui';
+import { ErrorNotice, FoldButton, SectionHead, SectionNav, describeError, useFold } from './components/ui';
 import { fmtBytes, fmtTime, load, parseTime, save } from './lib/format';
 import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, toFileName } from './lib/naming';
 import { probeAudio, probeVideo } from './lib/probe';
@@ -44,6 +44,12 @@ export default function App() {
   const [loading, setLoading] = useState<Slot | null>(null);
   const [fileError, setFileError] = useState<Partial<Record<Slot, string>>>({});
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const foldFiles = useFold();
+  const foldAudio = useFold();
+  const foldEpisode = useFold();
+  const foldResult = useFold();
+  const foldVideo = useFold(!(load('fastMode', true) as boolean));
+  const [normOpen, setNormOpen] = useState(!(load('fastMode', true) as boolean));
   const [submitted, setSubmitted] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -81,6 +87,11 @@ export default function App() {
   const useNormalize = !fastMode && normalize;
   const useCompress = !fastMode && compress;
   const running = status.kind === 'running';
+  const { setOpen: setVideoOpen } = foldVideo;
+  useEffect(() => {
+    setVideoOpen(!fastMode);
+    setNormOpen(!fastMode);
+  }, [fastMode, setVideoOpen]);
 
   // Warn before leaving with work in progress (files can't be restored after a reload).
   useEffect(() => {
@@ -289,8 +300,8 @@ export default function App() {
         ]}
       />
 
-      <section className="section" id="files" aria-labelledby="h-files">
-        <SectionHead id="h-files" n={1} title="Files" sub="Your recording, the clip to loop, and an optional intro and outro." />
+      <section className={foldFiles.cls} id="files" aria-labelledby="h-files">
+        <SectionHead id="h-files" fold={foldFiles} n={1} title="Files" sub="Your recording, the clip to loop, and an optional intro and outro." />
         <div className="grid-2">
           <DropZone
             id="drop-audio"
@@ -349,8 +360,8 @@ export default function App() {
         </div>
       </section>
 
-      <section className="section" id="audio" aria-labelledby="h-audio">
-        <SectionHead id="h-audio" n={2} title="Audio" sub="Trim the recording and even out its volume." />
+      <section className={foldAudio.cls} id="audio" aria-labelledby="h-audio">
+        <SectionHead id="h-audio" fold={foldAudio} n={2} title="Audio" sub="Trim the recording and even out its volume." />
         <div className="row">
           <label className="field">
             Cut from start
@@ -388,6 +399,13 @@ export default function App() {
             ? `Keeps ${fmtTime(trimStart!)} → ${fmtTime(audio.info.duration - trimEnd!)} (${fmtTime(mainDuration)}).`
             : 'Seconds (90) or minutes:seconds (1:30).'}
         </p>
+        <div className={normOpen ? 'subfold' : 'subfold collapsed'}>
+          <div className="subfold-head">
+            <FoldButton open={normOpen} onClick={() => setNormOpen((o) => !o)} label="loudness settings" />
+            <strong>Loudness</strong>
+            {fastMode && <span className="fast-note">Turn off Fast mode to normalize loudness.</span>}
+          </div>
+          <div className="subfold-body">
         <div className={`row ${fastMode ? 'off' : ''}`}>
           <label className="check">
             <input type="checkbox" checked={useNormalize} onChange={(e) => setNormalize(e.target.checked)} disabled={running || fastMode} />
@@ -402,15 +420,16 @@ export default function App() {
             </select>
           </label>
         </div>
-        {fastMode ? (
-          <p className="fast-note">Turn off Fast mode to normalize loudness.</p>
-        ) : (
+        {!fastMode && (
           <p className="helper">Evens out the volume and keeps peaks below -1 dB. Re-encodes the audio, so exporting takes minutes.</p>
         )}
+          </div>
+        </div>
+
       </section>
 
-      <section className="section" id="video" aria-labelledby="h-video">
-        <SectionHead id="h-video" n={3} title="Video" sub="Make the loop clip smaller for a faster upload." />
+      <section className={foldVideo.cls} id="video" aria-labelledby="h-video">
+        <SectionHead id="h-video" fold={foldVideo} n={3} title="Video" sub="Make the loop clip smaller for a faster upload." />
         <div className={`feature ${fastMode ? 'off' : ''}`}>
         <label className="check">
           <input type="checkbox" checked={useCompress} onChange={(e) => setCompress(e.target.checked)} disabled={running || fastMode} />
@@ -438,14 +457,14 @@ export default function App() {
         </div>
         </div>
         {fastMode ? (
-          <p className="fast-note">Turn off Fast mode to compress the loop video.</p>
+          <p className="fast-note keep">Turn off Fast mode to compress the loop video.</p>
         ) : (
           <p className="helper">Smaller file, faster upload. Only the short clip is re-encoded.</p>
         )}
       </section>
 
-      <section className="section" id="episode" aria-labelledby="h-episode">
-        <SectionHead id="h-episode" n={4} title="Episode & file name" sub="Name the file the way YouTube will first show it." />
+      <section className={foldEpisode.cls} id="episode" aria-labelledby="h-episode">
+        <SectionHead id="h-episode" fold={foldEpisode} n={4} title="Episode & file name" sub="Name the file the way YouTube will first show it." />
         <div className="row">
           <label className="field">
             Show name
@@ -489,8 +508,8 @@ export default function App() {
       </section>
 
       {status.kind === 'done' && status.url && (
-        <section className="section" aria-labelledby="h-result">
-          <SectionHead id="h-result" title="Result" sub="Preview the video before you download it." />
+        <section className={foldResult.cls} aria-labelledby="h-result">
+          <SectionHead id="h-result" fold={foldResult} title="Result" sub="Preview the video before you download it." />
           <div className="result">
             <video src={status.url} controls />
           </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fmtBytes, fmtTime, load, save } from '../lib/format';
-import { FileButton, SectionHead, useConfirm } from './ui';
+import { FileButton, SectionHead, useConfirm, useFold } from './ui';
 import { FONTS, ensureFont, fontCss, type FontKey } from './thumbFonts';
 
 const W = 1280;
@@ -76,6 +76,7 @@ const TOKENS_HINT = '{n} {nn} {show} {title}';
 
 /** YouTube thumbnail maker. All style settings persist in localStorage for the next episode. */
 export function Thumbnail(props: { video: File | null; show: string; episode: number; title: string; baseName: string }) {
+  const fold = useFold();
   const [s, setS] = useState<ThumbSettings>(() => ({ ...THUMB_DEFAULTS, ...load<Partial<ThumbSettings>>('thumb', {}) }));
   const set = <K extends keyof ThumbSettings>(key: K, value: ThumbSettings[K]) => setS((prev) => ({ ...prev, [key]: value }));
   useEffect(() => save('thumb', s), [s]);
@@ -206,8 +207,8 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
   };
 
   return (
-    <section className="section" id="thumbnail" aria-labelledby="h-thumb">
-      <SectionHead id="h-thumb" n={5} title="Thumbnail" sub="Design the image people click on. Style settings are remembered." />
+    <section className={fold.cls} id="thumbnail" aria-labelledby="h-thumb">
+      <SectionHead id="h-thumb" fold={fold} n={5} title="Thumbnail" sub="Design the image people click on. Style settings are remembered." />
       {!hasSource ? (
         <div className="empty">
           <p>Design a 1280×720 thumbnail from a frame of your loop video or any image.</p>
