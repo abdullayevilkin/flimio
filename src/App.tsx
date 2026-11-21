@@ -44,12 +44,13 @@ export default function App() {
   const [loading, setLoading] = useState<Slot | null>(null);
   const [fileError, setFileError] = useState<Partial<Record<Slot, string>>>({});
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const foldFiles = useFold();
-  const foldAudio = useFold();
-  const foldEpisode = useFold();
-  const foldResult = useFold();
-  const foldVideo = useFold(!(load('fastMode', true) as boolean));
-  const [normOpen, setNormOpen] = useState(!(load('fastMode', true) as boolean));
+  const foldFiles = useFold('files');
+  const foldAudio = useFold('audio');
+  const foldEpisode = useFold('episode');
+  const foldResult = useFold('result');
+  const foldVideo = useFold('video', !load('fastMode', true));
+  const [normOpen, setNormOpen] = useState<boolean>(() => load('fold.loudness', !load('fastMode', true)));
+  useEffect(() => save('fold.loudness', normOpen), [normOpen]);
   const [submitted, setSubmitted] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -87,11 +88,6 @@ export default function App() {
   const useNormalize = !fastMode && normalize;
   const useCompress = !fastMode && compress;
   const running = status.kind === 'running';
-  const { setOpen: setVideoOpen } = foldVideo;
-  useEffect(() => {
-    setVideoOpen(!fastMode);
-    setNormOpen(!fastMode);
-  }, [fastMode, setVideoOpen]);
 
   // Warn before leaving with work in progress (files can't be restored after a reload).
   useEffect(() => {

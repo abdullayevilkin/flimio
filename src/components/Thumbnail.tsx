@@ -76,7 +76,7 @@ const TOKENS_HINT = '{n} {nn} {show} {title}';
 
 /** YouTube thumbnail maker. All style settings persist in localStorage for the next episode. */
 export function Thumbnail(props: { video: File | null; show: string; episode: number; title: string; baseName: string }) {
-  const fold = useFold();
+  const fold = useFold('thumbnail');
   const [s, setS] = useState<ThumbSettings>(() => ({ ...THUMB_DEFAULTS, ...load<Partial<ThumbSettings>>('thumb', {}) }));
   const set = <K extends keyof ThumbSettings>(key: K, value: ThumbSettings[K]) => setS((prev) => ({ ...prev, [key]: value }));
   useEffect(() => save('thumb', s), [s]);

@@ -19,7 +19,7 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
   const [session, setSession] = useState<Session | null>(null);
   const [state, setState] = useState<State>({ kind: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
-  const fold = useFold();
+  const fold = useFold('youtube');
 
   useEffect(() => save('yt.clientId', clientId), [clientId]);
   useEffect(() => save('yt.description', description), [description]);

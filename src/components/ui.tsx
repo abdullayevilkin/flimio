@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { load, save } from '../lib/format';
 
 /** A real, focusable button that opens a file picker (a hidden <input type=file> is not keyboard-reachable). */
 export function FileButton(props: {
@@ -134,8 +135,9 @@ export function describeError(e: unknown, fallback: string): { message: string; 
 
 /** Numbered section header: makes each part of the form read as its own step. */
 /** Open/closed state for a collapsible section; `cls` goes on the <section>. */
-export function useFold(initial = true) {
-  const [open, setOpen] = useState(initial);
+export function useFold(key: string, initial = true) {
+  const [open, setOpen] = useState<boolean>(() => load(`fold.${key}`, initial));
+  useEffect(() => save(`fold.${key}`, open), [key, open]);
   return { open, setOpen, toggle: () => setOpen((o) => !o), cls: open ? 'section' : 'section collapsed' };
 }
 
