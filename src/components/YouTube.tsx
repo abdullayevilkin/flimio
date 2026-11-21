@@ -105,7 +105,7 @@ export function YouTube(props: { getFile: () => Promise<Blob>; defaultTitle: str
         </ol>
         <p className="helper">
           Until Google verifies the project, YouTube may keep API-uploaded videos private. You can switch them to public in YouTube Studio.
-          One upload uses about a sixth of the default daily quota.
+          Your daily upload limit is shown on the Quotas page of your Google Cloud project.
         </p>
       </details>
 
