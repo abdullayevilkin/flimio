@@ -64,7 +64,7 @@ export async function signOut(session: Session) {
 }
 
 export type Privacy = 'private' | 'unlisted' | 'public';
-export type UploadMeta = { title: string; description: string; privacy: Privacy };
+export type UploadMeta = { title: string; description: string; privacy: Privacy; madeForKids: boolean; aiContent: boolean };
 export type Uploaded = { id: string; url: string };
 
 export class UploadError extends Error {}
@@ -88,7 +88,7 @@ export async function uploadVideo(
     },
     body: JSON.stringify({
       snippet: { title: meta.title, description: meta.description, categoryId: '22' },
-      status: { privacyStatus: meta.privacy, selfDeclaredMadeForKids: false },
+      status: { privacyStatus: meta.privacy, selfDeclaredMadeForKids: meta.madeForKids, containsSyntheticMedia: meta.aiContent },
     }),
   });
   if (!init.ok) throw new UploadError(await apiMessage(init));

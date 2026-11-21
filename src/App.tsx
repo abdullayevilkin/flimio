@@ -401,8 +401,8 @@ export default function App() {
             : 'Seconds (90) or minutes:seconds (1:30).'}
         </p>
         <div className={normOpen ? 'subfold' : 'subfold collapsed'}>
-          <div className="subfold-head">
-            <FoldButton open={normOpen} onClick={() => setNormOpen((o) => !o)} label="loudness settings" />
+          <div className="subfold-head clickable" onClick={() => setNormOpen((o) => !o)}>
+            <FoldButton open={normOpen} onClick={(e) => { e.stopPropagation(); setNormOpen((o) => !o); }} label="loudness settings" />
             <strong>Loudness</strong>
             {fastMode && <span className="fast-note">Turn off Fast mode to normalize loudness.</span>}
           </div>

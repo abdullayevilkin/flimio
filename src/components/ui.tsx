@@ -141,7 +141,7 @@ export function useFold(key: string, initial = true) {
   return { open, setOpen, toggle: () => setOpen((o) => !o), cls: open ? 'section' : 'section collapsed' };
 }
 
-export function FoldButton(props: { open: boolean; onClick: () => void; label: string; className?: string }) {
+export function FoldButton(props: { open: boolean; onClick: (e: React.MouseEvent) => void; label: string; className?: string }) {
   return (
     <button
       type="button"
@@ -160,7 +160,7 @@ export function FoldButton(props: { open: boolean; onClick: () => void; label: s
 
 export function SectionHead(props: { id: string; n?: number; title: string; sub?: string; fold?: { open: boolean; toggle: () => void } }) {
   return (
-    <div className="section-head">
+    <div className={props.fold ? 'section-head clickable' : 'section-head'} onClick={props.fold?.toggle}>
       {props.n !== undefined && (
         <span className="step" aria-hidden="true">
           {props.n}
@@ -172,7 +172,7 @@ export function SectionHead(props: { id: string; n?: number; title: string; sub?
         </h2>
         {props.sub && <p className="helper">{props.sub}</p>}
       </div>
-      {props.fold && <FoldButton open={props.fold.open} onClick={props.fold.toggle} label={props.title} className="push" />}
+      {props.fold && <FoldButton open={props.fold.open} onClick={(e) => { e.stopPropagation(); props.fold!.toggle(); }} label={props.title} className="push" />}
     </div>
   );
 }

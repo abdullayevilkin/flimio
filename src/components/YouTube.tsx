@@ -16,6 +16,8 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
   const [title, setTitle] = useState(props.defaultTitle);
   const [description, setDescription] = useState<string>(() => load('yt.description', ''));
   const [privacy, setPrivacy] = useState<Privacy>(() => load('yt.privacy', 'private'));
+  const [madeForKids, setMadeForKids] = useState<boolean>(() => load('yt.madeForKids', false));
+  const [aiContent, setAiContent] = useState<boolean>(() => load('yt.aiContent', true));
   const [session, setSession] = useState<Session | null>(null);
   const [state, setState] = useState<State>({ kind: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
@@ -24,6 +26,8 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
   useEffect(() => save('yt.clientId', clientId), [clientId]);
   useEffect(() => save('yt.description', description), [description]);
   useEffect(() => save('yt.privacy', privacy), [privacy]);
+  useEffect(() => save('yt.madeForKids', madeForKids), [madeForKids]);
+  useEffect(() => save('yt.aiContent', aiContent), [aiContent]);
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const id = clientId.trim();
@@ -42,7 +46,7 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
       }
       setState({ kind: 'uploading', progress: 0 });
       const file = await props.getFile!();
-      const video = await uploadVideo(file, { title: title.trim(), description, privacy }, s, (progress) => setState({ kind: 'uploading', progress }), ctrl.signal);
+      const video = await uploadVideo(file, { title: title.trim(), description, privacy, madeForKids, aiContent }, s, (progress) => setState({ kind: 'uploading', progress }), ctrl.signal);
       setState({ kind: 'done', video });
     } catch (e) {
       if ((e as DOMException).name === 'AbortError') setState({ kind: 'idle' });
@@ -78,6 +82,22 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
       <label className="field">
         Description
         <textarea rows={3} value={description} maxLength={5000} onChange={(e) => setDescription(e.target.value)} disabled={uploading} />
+      </label>
+
+      <fieldset className="yt-audience" disabled={uploading}>
+        <legend>Audience (YouTube requires an answer)</legend>
+        <label className="check">
+          <input type="radio" name="yt-kids" checked={!madeForKids} onChange={() => setMadeForKids(false)} />
+          No, it’s not made for kids
+        </label>
+        <label className="check">
+          <input type="radio" name="yt-kids" checked={madeForKids} onChange={() => setMadeForKids(true)} />
+          Yes, it’s made for kids
+        </label>
+      </fieldset>
+      <label className="check">
+        <input type="checkbox" checked={aiContent} onChange={(e) => setAiContent(e.target.checked)} disabled={uploading} />
+        Altered or synthetic content — realistic AI-generated or AI-altered visuals or voices
       </label>
 
       <label className="field">
