@@ -14,16 +14,30 @@ type State =
 export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultTitle: string; size: number | null }) {
   const [clientId, setClientId] = useState<string>(() => load('yt.clientId', ENV_CLIENT_ID));
   const [title, setTitle] = useState(props.defaultTitle);
+  const titleEdited = useRef(false);
+  // Follow the File name field until the title is edited by hand; a freshly created video starts over.
+  useEffect(() => {
+    if (!titleEdited.current) setTitle(props.defaultTitle);
+  }, [props.defaultTitle]);
+  useEffect(() => {
+    titleEdited.current = false;
+    setTitle(props.defaultTitle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.getFile]);
   const [description, setDescription] = useState<string>(() => load('yt.description', ''));
   const [privacy, setPrivacy] = useState<Privacy>(() => load('yt.privacy', 'private'));
   const [madeForKids, setMadeForKids] = useState<boolean>(() => load('yt.madeForKids', false));
   const [aiContent, setAiContent] = useState<boolean>(() => load('yt.aiContent', true));
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(() => {
+    const saved = load<Session | null>('yt.session', null);
+    return saved && saved.expiresAt > Date.now() ? saved : null;
+  });
   const [state, setState] = useState<State>({ kind: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
   const fold = useFold('youtube');
 
   useEffect(() => save('yt.clientId', clientId), [clientId]);
+  useEffect(() => save('yt.session', session), [session]);
   useEffect(() => save('yt.description', description), [description]);
   useEffect(() => save('yt.privacy', privacy), [privacy]);
   useEffect(() => save('yt.madeForKids', madeForKids), [madeForKids]);
@@ -67,7 +81,10 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
       <div className="row" style={{ alignItems: "flex-start" }}>
         <label className="field" style={{ flex: '2 1 280px' }}>
           Video title
-          <input type="text" value={title} maxLength={100} onChange={(e) => setTitle(e.target.value)} disabled={uploading} aria-invalid={!titleOk} />
+          <input type="text" value={title} maxLength={100} onChange={(e) => {
+              titleEdited.current = true;
+              setTitle(e.target.value);
+            }} disabled={uploading} aria-invalid={!titleOk} />
           <span className="helper">{title.length}/100</span>
         </label>
         <label className="field">

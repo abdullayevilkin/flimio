@@ -520,9 +520,8 @@ export default function App() {
       <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
 
       <YouTube
-        key={status.kind === 'done' ? status.fileName + status.seconds : 'none'}
         getFile={status.kind === 'done' ? status.getFile : null}
-        defaultTitle={status.kind === 'done' ? status.fileName.replace(/\.mp4$/i, '') : ''}
+        defaultTitle={fileName.replace(/\.[a-z0-9]{2,4}$/i, '')}
         size={status.kind === 'done' ? status.size : null}
       />
 
