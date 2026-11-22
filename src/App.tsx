@@ -10,6 +10,7 @@ import { probeAudio, probeVideo } from './lib/probe';
 import { estimateSize, render } from './lib/render';
 import './styles/base.css';
 import { YouTube } from './components/YouTube';
+import { Bulk } from './components/Bulk';
 import './App.css';
 
 type Slot = 'audio' | 'video' | 'intro' | 'outro';
@@ -370,6 +371,7 @@ export default function App() {
           { id: 'episode', label: 'Episode' },
           { id: 'thumbnail', label: 'Thumbnail' },
           { id: 'youtube', label: 'YouTube', focus: '#yt-upload' },
+          { id: 'bulk', label: 'Bulk' },
         ]}
       />
 
@@ -623,6 +625,28 @@ export default function App() {
           }
           await yt.publish(await status.getFile());
         }}
+      />
+
+      <Bulk
+        yt={yt}
+        show={show}
+        template={template}
+        startEpisode={episode}
+        sharedLoop={video?.file ?? null}
+        makeOpts={(o) => ({
+          audio: o.audio,
+          video: o.video,
+          intro: intro?.file,
+          outro: outro?.file,
+          trimStart: 0,
+          trimEnd: 0,
+          normalize: useNormalize ? { targetLufs } : null,
+          compress: useCompress ? { maxHeight: maxHeight || null, bitrate } : null,
+          title: o.title,
+          writable: o.writable as never,
+          signal: o.signal,
+          onProgress: o.onProgress,
+        })}
       />
 
       <div className="actionbar" aria-live="polite">

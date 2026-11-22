@@ -119,7 +119,7 @@ export function useYoutube(p: { defaultTitle: string; fields: NamingFields; vide
   return {
     clientId, setClientId, id, title, setTitle, resetTitle, titleOk, description, setDescription, descriptionPreview,
     privacy, setPrivacy, madeForKids, setMadeForKids, aiContent, setAiContent, withThumb, setWithThumb,
-    session, signOut: () => { if (session) void signOut(session); setSession(null); },
+    session, setSession, getSession: () => latest.current.session, signOut: () => { if (session) void signOut(session); setSession(null); },
     state, setState, ensureSession, publish, cancel: () => abortRef.current?.abort(),
     get busy() { return state.kind === 'uploading' || state.kind === 'signing'; },
   };

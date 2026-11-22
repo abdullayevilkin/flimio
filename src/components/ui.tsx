@@ -8,7 +8,9 @@ export function FileButton(props: {
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
-  onFile: (f: File | undefined) => void;
+  multiple?: boolean;
+  onFile?: (f: File | undefined) => void;
+  onFiles?: (f: File[] | undefined) => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -27,9 +29,12 @@ export function FileButton(props: {
         type="file"
         accept={props.accept}
         hidden
+        multiple={props.multiple}
         tabIndex={-1}
         onChange={(e) => {
-          props.onFile(e.target.files?.[0]);
+          const list = e.target.files ? [...e.target.files] : undefined;
+          props.onFile?.(list?.[0]);
+          props.onFiles?.(list);
           e.target.value = '';
         }}
       />

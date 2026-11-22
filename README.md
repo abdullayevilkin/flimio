@@ -16,6 +16,10 @@ Turn a long audio recording (e.g. a 10–20 minute podcast in `.m4a`) and a shor
 - **File name template** — `{show} - Episode {n} - {title}` (tokens `{show}`, `{n}`, `{nn}`, `{title}`, `{date}`); also written into the MP4 title metadata. The episode number goes up when the next episode's audio is loaded.
 - **Thumbnail generator** — a frame from the loop video (or any image) with a big text (e.g. `EPISODE {n}`) and a small text (e.g. `{title}`); 6 bundled fonts (Anton, Bebas Neue, Oswald, Montserrat, Inter, Playfair), 9 positions, shadow / outline / highlight box, zoom & pan, brightness, blur, overlay, logo, feed-size preview and the YouTube length badge guide. Exports 1280×720 JPG (≤ 2 MB) or PNG. All style settings are remembered in the browser for the next episode.
 - **Publish to YouTube** — after the video is created, sign in with Google and upload it straight from the browser (title, description, visibility). It uses the YouTube Data API v3 resumable upload; the file goes from your browser to YouTube only. You need your own Google OAuth *Web application* client ID (paste it in the page, or set `VITE_GOOGLE_CLIENT_ID` at build time) with this site listed under Authorized JavaScript origins.
+- **Create & upload to YouTube** — one button renders the video in the browser's private storage and uploads it right away, then sets the thumbnail from step 5 (thumbnails need a phone-verified channel). “Create & save video” still just saves the file.
+- **Remember loop** — keeps the loop clip in the browser (IndexedDB) so you only add the new audio next time.
+- **Description template** — `{show}` `{n}` `{nn}` `{title}` `{date}` are filled in for each video; the template is remembered.
+- **Bulk queue** — add many audio files (same loop for all, or one loop per episode matched by file-name order). Each one is rendered and optionally uploaded, with a per-run upload cap, a pause between uploads, automatic stop on YouTube quota / upload-limit errors, optional scheduled publishing (`publishAt`, one video every N days) and an “uploaded earlier” memory so the queue can be continued the next day. Needs a Chromium-based browser.
 
 ## How it works
 

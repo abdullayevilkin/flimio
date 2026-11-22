@@ -299,3 +299,18 @@ html { scroll-behavior: smooth; }
   font-size: var(--text-secondary);
 }
 .warn-text svg { flex-shrink: 0; margin-top: 2px; }
+
+/* bulk queue */
+.bulk-list { display: flex; flex-direction: column; border: 1px solid var(--border-1); border-radius: var(--radius); overflow: hidden; }
+.bulk-row { display: grid; grid-template-columns: 32px 1fr auto; gap: var(--space-3); align-items: start; padding: var(--space-3); background: var(--surface-0); }
+.bulk-row + .bulk-row { border-top: 1px solid var(--border-1); }
+.bulk-row.done, .bulk-row.earlier { opacity: 0.7; }
+.bulk-row.error { box-shadow: inset 3px 0 0 var(--error, #ff6b6b); }
+.bulk-no { color: var(--text-muted); font-variant-numeric: tabular-nums; padding-top: var(--space-2); }
+.bulk-main { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.bulk-top { display: flex; gap: var(--space-2); align-items: center; }
+.bulk-top input { flex: 1; min-width: 0; }
+.bulk-state { font-size: var(--text-secondary); color: var(--text-muted); white-space: nowrap; padding-top: var(--space-2); }
+.epbadge.small { min-height: 24px; padding: 0 var(--space-2); font-size: 0.75rem; white-space: nowrap; }
+.bar.mini { height: 4px; }
+@media (max-width: 767.98px) { .bulk-row { grid-template-columns: 24px 1fr; } .bulk-state { grid-column: 2; padding-top: 0; } }
