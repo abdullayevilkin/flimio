@@ -52,6 +52,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
 
   const [upload, setUpload] = useState<boolean>(() => load('bulk.upload', true));
   const [cap, setCap] = useState<number>(() => load('bulk.cap', 5));
+  const [longPause, setLongPause] = useState<number>(() => load('bulk.longPause', 60));
+  const [keepGoing, setKeepGoing] = useState<boolean>(() => load('bulk.keepGoing', true));
   const [gap, setGap] = useState<number>(() => load('bulk.gap', 2));
   const [schedule, setSchedule] = useState<boolean>(() => load('bulk.schedule', false));
   const [scheduleStart, setScheduleStart] = useState<string>(() => load('bulk.scheduleStart', ''));
@@ -59,6 +61,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [dir, setDir] = useState<FileSystemDirectoryHandle | null>(null);
   useEffect(() => save('bulk.upload', upload), [upload]);
   useEffect(() => save('bulk.cap', cap), [cap]);
+  useEffect(() => save('bulk.longPause', longPause), [longPause]);
+  useEffect(() => save('bulk.keepGoing', keepGoing), [keepGoing]);
   useEffect(() => save('bulk.gap', gap), [gap]);
   useEffect(() => save('bulk.schedule', schedule), [schedule]);
   useEffect(() => save('bulk.scheduleStart', scheduleStart), [scheduleStart]);
@@ -69,7 +73,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [running, setRunning] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [pauseAfter, setPauseAfter] = useState<number | null>(null);
+  const [pauseWhy, setPauseWhy] = useState('');
   const abortRef = useRef<AbortController | null>(null);
 
   const startMs = scheduleStart ? new Date(scheduleStart).getTime() : NaN;
@@ -149,16 +153,24 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     setNote(null);
     let uploads = 0;
     let errorsInARow = 0;
+    let limitRetries = 0;
+    const pauseFor = async (minutes: number, why: string) => {
+      setPauseWhy(why);
+      for (let s = Math.round(minutes * 60); s > 0 && !ctrl.signal.aborted; s--) {
+        setCountdown(s);
+        await sleep(1000, ctrl.signal);
+      }
+      setCountdown(null);
+    };
+    // Keep the screen awake while the queue runs, so the computer does not fall asleep mid-way.
+    const wakeApi = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
+    const wake = await wakeApi?.request('screen').catch(() => null);
     try {
       if (upload) await yt.ensureSession(); // inside the click, so the Google popup is allowed
       const root = await navigator.storage.getDirectory();
       const todo = itemsRef.current.filter((i) => i.runtime.state === 'queued' || i.runtime.state === 'error');
       for (let n = 0; n < todo.length; n++) {
         if (ctrl.signal.aborted) break;
-        if (upload && uploads >= cap) {
-          setNote(`Reached your limit of ${cap} uploads for this run. ${todo.length - n} left in the queue — press Start again later (or tomorrow).`);
-          break;
-        }
         const it = itemsRef.current.find((x) => x.id === todo[n].id)!;
         const fields = { show: props.show, episode: it.episode, title: it.e.title };
         const baseName = applyTemplate(props.template, fields) || it.e.title || `episode-${it.episode}`;
@@ -233,14 +245,16 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
           }
           patch(it.id, { state: 'done', link, message: thumbWarn.trim() || undefined });
           errorsInARow = 0;
-          // Pause between uploads so YouTube does not see a burst.
-          if (upload && gap > 0 && n < todo.length - 1 && uploads < cap) {
-            setPauseAfter(it.episode);
-            for (let s = Math.round(gap * 60); s > 0 && !ctrl.signal.aborted; s--) {
-              setCountdown(s);
-              await sleep(1000, ctrl.signal);
+          limitRetries = 0;
+          // Pause between uploads so YouTube does not see a burst; a longer one after every `cap` uploads.
+          if (upload && n < todo.length - 1) {
+            const batchEnd = cap > 0 && uploads % cap === 0;
+            if (batchEnd && longPause === 0) {
+              setNote(`Stopped after ${uploads} uploads. ${todo.length - n - 1} left in the queue — press Continue to go on.`);
+              break;
             }
-            setCountdown(null);
+            const minutes = batchEnd ? longPause : gap;
+            if (minutes > 0) await pauseFor(minutes, batchEnd ? `long pause after ${uploads} uploads` : `pause after episode ${it.episode}`);
           }
         } catch (e) {
           if ((e as DOMException).name === 'AbortError') {
@@ -250,7 +264,15 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
           const message = e instanceof Error ? e.message : String(e);
           if (isLimitError(e)) {
             patch(it.id, { state: 'queued' });
-            setNote(`${message} Stopped here; ${todo.length - n} left in the queue. Press Start again later.`);
+            if (keepGoing && limitRetries < 24) {
+              limitRetries++;
+              setNote(`${message} Trying again automatically in 60 minutes (keep this page open).`);
+              await pauseFor(60, 'YouTube limit reached, trying again');
+              setNote(null);
+              n--; // same episode again
+              continue;
+            }
+            setNote(`${message} Stopped here; ${todo.length - n} left in the queue. Press Continue later.`);
             break;
           }
           patch(it.id, { state: 'error', message });
@@ -266,7 +288,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       if (!ctrl.signal.aborted) setNote(e instanceof Error ? e.message : 'Could not start the queue.');
     } finally {
       setCountdown(null);
-      setPauseAfter(null);
+      setPauseWhy('');
+      void wake?.release().catch(() => {});
       setRunning(false);
       abortRef.current = null;
     }
@@ -282,7 +305,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     if (r.state === 'error') return 'Failed';
     // queued
     if (!running) return 'Not started';
-    if (countdown !== null && i.id === firstQueuedId) return `Starts in ${fmtTime(countdown)} · pause after episode ${pauseAfter}`;
+    if (countdown !== null && i.id === firstQueuedId) return `Starts in ${fmtTime(countdown)} · ${pauseWhy}`;
     const before = items[idx - 1];
     return before ? `Waits for episode ${before.episode}` : 'Next in line';
   };
@@ -357,17 +380,25 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
         <>
           <div className="row">
             <label className="field narrow">
-              Uploads per run
-              <input type="number" min={1} max={50} value={cap} onChange={(e) => setCap(Math.max(1, Number(e.target.value) || 1))} disabled={running} />
-            </label>
-            <label className="field narrow">
-              Wait (minutes)
+              Wait between uploads (min)
               <input type="number" min={0} max={60} value={gap} onChange={(e) => setGap(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
             </label>
-            <span className="helper" style={{ flex: '2 1 260px' }}>
-              The queue stops after this many uploads and pauses between them. It also stops by itself when YouTube says the daily limit is reached.
-            </span>
+            <label className="field narrow">
+              Long pause after every (uploads)
+              <input type="number" min={0} max={50} value={cap} onChange={(e) => setCap(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
+            </label>
+            <label className="field narrow">
+              Long pause (minutes)
+              <input type="number" min={0} max={1440} value={longPause} onChange={(e) => setLongPause(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
+            </label>
           </div>
+          <p className="helper">
+            The queue keeps going on its own: a short wait after each upload and a long pause after every group (0 minutes = stop there instead). Leave this page open and the computer awake; the screen is kept on while it runs.
+          </p>
+          <label className="check">
+            <input type="checkbox" checked={keepGoing} onChange={(e) => setKeepGoing(e.target.checked)} disabled={running} />
+            If YouTube says the daily limit is reached, wait an hour and try again automatically
+          </label>
           <label className="check">
             <input type="checkbox" checked={schedule} onChange={(e) => setSchedule(e.target.checked)} disabled={running} />
             Schedule publishing (uploads stay private, then YouTube publishes them one by one)
@@ -443,7 +474,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       )}
 
       {entries.length === 1 && <p className="helper">Only one episode here: use “Create & upload to YouTube” at the bottom of the page. The bulk queue starts from 2 episodes.</p>}
-      {countdown !== null && <p className="helper">Pause between uploads: the next episode starts in {fmtTime(countdown)}.</p>}
+      {countdown !== null && <p className="helper">Pause ({pauseWhy}): the next episode starts in {fmtTime(countdown)}.</p>}
       {note && <p className="warn-text" role="status"><span>{note}</span></p>}
 
       <div className="row">
