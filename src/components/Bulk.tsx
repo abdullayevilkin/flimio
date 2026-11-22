@@ -38,7 +38,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
   });
 
 /** Many episodes in one go: render each one, optionally upload it, with pauses and limits that keep YouTube happy. */
-export function Bulk(props: { yt: Youtube; show: string; template: string; startEpisode: number; sharedLoop: File | null; makeOpts: MakeOpts }) {
+export function Bulk(props: { yt: Youtube; show: string; template: string; startEpisode: number; sharedLoop: File | null; makeOpts: MakeOpts; onPreview: (p: { video: File | null; episode: number; title: string } | null) => void }) {
   const { yt } = props;
   const fold = useFold('bulk', false);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -103,6 +103,13 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
         : loops.length !== entries.length
           ? `The number of loops (${loops.length}) must match the number of audio files (${entries.length}).`
           : null;
+  // Let the thumbnail editor (step 5) preview the first queued episode, so its style can be set up without step 1.
+  const first = items.find((i) => i.runtime.state === 'queued' || i.runtime.state === 'error') ?? items[0];
+  const { onPreview } = props;
+  useEffect(() => {
+    onPreview(first ? { video: first.loop, episode: first.episode, title: first.e.title } : null);
+  }, [first?.loop, first?.episode, first?.e.title, onPreview]);
+  useEffect(() => () => onPreview(null), [onPreview]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
 

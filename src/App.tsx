@@ -76,6 +76,7 @@ export default function App() {
   const [episode, setEpisode] = useState(() => load('episode', 1));
   const [title, setTitle] = useState(() => load('title', ''));
   const [template, setTemplate] = useState(() => load('template', DEFAULT_TEMPLATE));
+  const [bulkPreview, setBulkPreview] = useState<{ video: File | null; episode: number; title: string } | null>(null);
   const [rememberLoop, setRememberLoop] = useState(() => load('rememberLoop', false));
   const [loopFromStore, setLoopFromStore] = useState(false);
   const [bumpEpisode, setBumpEpisode] = useState(() => load('bumpEpisode', true));
@@ -610,7 +611,13 @@ export default function App() {
         </section>
       )}
 
-      <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
+      <Thumbnail
+        video={video?.file ?? (bulkPreview?.video ?? null)}
+        show={show}
+        episode={!video && bulkPreview ? bulkPreview.episode : episode}
+        title={!video && bulkPreview ? bulkPreview.title : title}
+        baseName={baseName}
+      />
 
       <YouTube
         yt={yt}
@@ -633,6 +640,7 @@ export default function App() {
         template={template}
         startEpisode={episode}
         sharedLoop={video?.file ?? null}
+        onPreview={setBulkPreview}
         makeOpts={(o) => ({
           audio: o.audio,
           video: o.video,
