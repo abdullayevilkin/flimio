@@ -3,6 +3,8 @@ import { DropZone, type Picked } from './components/DropZone';
 import { Thumbnail } from './components/Thumbnail';
 import { ErrorNotice, FoldButton, SectionHead, SectionNav, describeError, useFold } from './components/ui';
 import { fmtBytes, fmtTime, load, parseTime, save } from './lib/format';
+import { clearLoop, loadLoop, saveLoop } from './lib/loopStore';
+import { useYoutube } from './lib/useYoutube';
 import { DEFAULT_TEMPLATE, TEMPLATE_TOKENS, applyTemplate, titleFromFileName, toFileName } from './lib/naming';
 import { probeAudio, probeVideo } from './lib/probe';
 import { estimateSize, render } from './lib/render';
@@ -22,6 +24,8 @@ type Status =
       size: number | null;
       loudness?: { measured: number; gainDb: number };
       getFile: () => Promise<Blob>;
+      /** 'picked' = saved where you chose; 'temp' = kept in the browser for the YouTube upload */
+      where: 'picked' | 'temp' | 'memory';
     }
   | { kind: 'error'; message: string; details: string };
 
@@ -71,12 +75,14 @@ export default function App() {
   const [episode, setEpisode] = useState(() => load('episode', 1));
   const [title, setTitle] = useState(() => load('title', ''));
   const [template, setTemplate] = useState(() => load('template', DEFAULT_TEMPLATE));
+  const [rememberLoop, setRememberLoop] = useState(() => load('rememberLoop', false));
+  const [loopFromStore, setLoopFromStore] = useState(false);
   const [bumpEpisode, setBumpEpisode] = useState(() => load('bumpEpisode', true));
   // Set after an export; the number goes up when the next episode's audio is loaded,
   // so the thumbnail made right after an export still shows the right episode.
   const [pendingBump, setPendingBump] = useState(() => load('pendingBump', false));
 
-  const persisted = { fastMode, trimStart: trimStartText, trimEnd: trimEndText, normalize, targetLufs, compress, maxHeight, bitrate, show, episode, title, template, bumpEpisode, pendingBump };
+  const persisted = { fastMode, trimStart: trimStartText, trimEnd: trimEndText, normalize, targetLufs, compress, maxHeight, bitrate, show, episode, title, template, bumpEpisode, pendingBump, rememberLoop };
   useEffect(() => {
     for (const [k, v] of Object.entries(persisted)) save(k, v);
   });
@@ -111,6 +117,11 @@ export default function App() {
 
   const baseName = applyTemplate(template, { show, episode, title }) || audio?.file.name.replace(/\.[^.]+$/, '') || 'video';
   const fileName = toFileName(baseName);
+  const yt = useYoutube({
+    defaultTitle: fileName.replace(/\.[a-z0-9]{2,4}$/i, ''),
+    fields: { show, episode, title },
+    video: video?.file ?? null,
+  });
 
   // ---- trim validation: on blur, cleared while editing ----
   const trimStart = parseTime(trimStartText);
@@ -150,13 +161,17 @@ export default function App() {
     });
   }, [audio, video, intro, outro, mainDuration, useCompress, bitrate, reencodeAudio]);
 
-  const pick = async (slot: Slot, file: File | undefined) => {
+  const pick = async (slot: Slot, file: File | undefined, fromStore = false) => {
     if (!file) return;
     setLoading(slot);
     setFileError((e) => ({ ...e, [slot]: undefined }));
     try {
       const info = slot === 'audio' ? await probeAudio(file) : await probeVideo(file);
       const picked = { file, info, url: URL.createObjectURL(file) };
+      if (slot === 'video') {
+        setLoopFromStore(fromStore);
+        if (rememberLoop && !fromStore) void saveLoop(file).catch(() => {});
+      }
       setFiles((prev) => {
         if (prev[slot]) URL.revokeObjectURL(prev[slot]!.url);
         return { ...prev, [slot]: picked };
@@ -179,6 +194,12 @@ export default function App() {
     }
   };
 
+  // Restore the remembered loop clip on start.
+  useEffect(() => {
+    if (rememberLoop) void loadLoop().then((f) => f && pick('video', f, true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const clear = (slot: Slot) =>
     setFiles((prev) => {
       if (prev[slot]) URL.revokeObjectURL(prev[slot]!.url);
@@ -188,7 +209,7 @@ export default function App() {
   const missingAudio = !audio ? 'Add an audio file to create the video.' : null;
   const missingVideo = !video ? 'Add a loop video to create the video.' : null;
 
-  const generate = async () => {
+  const generate = async (mode: 'save' | 'upload' = 'save') => {
     setSubmitted(true);
     setTrimUi({ start: { touched: true, editing: false }, end: { touched: true, editing: false } });
     // Submit stays clickable: point to the first problem instead.
@@ -201,20 +222,52 @@ export default function App() {
     }
     if (!audio || !video) return;
 
+    if (mode === 'upload') {
+      // Sign in first, inside the click, so the Google popup is not blocked after a long render.
+      if (!yt.id || !yt.titleOk) {
+        document.getElementById('youtube')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        yt.setState({ kind: 'error', message: !yt.id ? 'Paste your Google OAuth client ID in step 6 first.' : 'Give the video a title (up to 100 characters) in step 6.', details: '' });
+        return;
+      }
+      try {
+        await yt.ensureSession();
+      } catch {
+        document.getElementById('youtube')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+    }
+    yt.resetTitle();
+
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     let writable: FileSystemWritableFileStream | undefined;
     let handle: FileSystemFileHandle | undefined;
-    if (savePicker) {
+    let where: 'picked' | 'temp' | 'memory' = 'memory';
+    if (mode === 'save' && savePicker) {
       try {
         handle = await savePicker({
           suggestedName: fileName,
           types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
         });
         writable = await handle.createWritable();
+        where = 'picked';
       } catch (e) {
         if ((e as DOMException).name === 'AbortError') return;
         writable = undefined;
+      }
+    } else if (mode === 'upload') {
+      // No save dialog: render into the browser's private disk space, then upload from there.
+      try {
+        const root = await navigator.storage.getDirectory();
+        for await (const name of (root as unknown as { keys(): AsyncIterable<string> }).keys()) {
+          if (name.startsWith('flimio-upload-')) await root.removeEntry(name).catch(() => {});
+        }
+        handle = await root.getFileHandle(`flimio-upload-${Date.now()}.mp4`, { create: true });
+        writable = await handle.createWritable();
+        where = 'temp';
+      } catch {
+        writable = undefined;
+        handle = undefined;
       }
     }
 
@@ -236,16 +289,19 @@ export default function App() {
         onProgress: (progress, stage) =>
           setStatus({ kind: 'running', progress, stage, elapsed: (performance.now() - startedAt) / 1000 }),
       });
+      const file = res.blob ?? (await handle!.getFile());
       setStatus({
         kind: 'done',
-        url: res.blob ? URL.createObjectURL(res.blob) : null,
+        url: res.blob ? URL.createObjectURL(res.blob) : where === 'temp' ? URL.createObjectURL(file) : null,
+        where,
         fileName,
         seconds: (performance.now() - startedAt) / 1000,
-        size: res.blob?.size ?? null,
+        size: res.blob?.size ?? (where === 'temp' ? file.size : null),
         loudness: res.loudness,
-        getFile: async () => res.blob ?? (await handle!.getFile()),
+        getFile: async () => file,
       });
       setPendingBump(true);
+      if (mode === 'upload') void yt.publish(file);
     } catch (e) {
       await writable?.abort().catch(() => {});
       if ((e as DOMException).name === 'AbortError') setStatus({ kind: 'idle' });
@@ -344,10 +400,28 @@ export default function App() {
             loading={loading === 'video'}
             disabled={running}
             required
+            note={loopFromStore ? 'Loaded from your saved loop. Choose another file to replace it.' : null}
             error={fileError.video ?? (submitted ? missingVideo : null)}
             onFile={(f) => pick('video', f)}
           >
             {video && <video src={video.url} autoPlay muted loop playsInline />}
+            {video && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={rememberLoop}
+                  onChange={(e) => {
+                    setRememberLoop(e.target.checked);
+                    if (e.target.checked) void saveLoop(video.file).catch(() => {});
+                    else {
+                      void clearLoop().catch(() => {});
+                      setLoopFromStore(false);
+                    }
+                  }}
+                />
+                Remember this loop on this device
+              </label>
+            )}
           </DropZone>
           <DropZone
             label="Intro"
@@ -537,9 +611,18 @@ export default function App() {
       <Thumbnail video={video?.file ?? null} show={show} episode={episode} title={title} baseName={baseName} />
 
       <YouTube
-        getFile={status.kind === 'done' ? status.getFile : null}
-        defaultTitle={fileName.replace(/\.[a-z0-9]{2,4}$/i, '')}
+        yt={yt}
+        fileReady={status.kind === 'done'}
         size={status.kind === 'done' ? status.size : null}
+        onUpload={async () => {
+          if (status.kind !== 'done') return;
+          try {
+            await yt.ensureSession();
+          } catch {
+            return;
+          }
+          await yt.publish(await status.getFile());
+        }}
       />
 
       <div className="actionbar" aria-live="polite">
@@ -548,7 +631,7 @@ export default function App() {
             message={status.message}
             details={status.details}
             actions={
-              <button className="btn secondary compact" onClick={generate}>
+              <button className="btn secondary compact" onClick={() => generate()}>
                 Try again
               </button>
             }
@@ -564,7 +647,7 @@ export default function App() {
         {status.kind === 'done' && (
           <p className="done-line">
             Done in {status.seconds.toFixed(1)} s —{' '}
-            {status.url ? (
+            {status.where !== 'picked' ? (
               <>
                 <strong>{status.fileName}</strong> ({fmtBytes(status.size ?? 0)})
               </>
@@ -582,6 +665,25 @@ export default function App() {
             )}
           </p>
         )}
+        {yt.state.kind === 'uploading' && (
+          <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(yt.state.progress * 100)}>
+            <div className="bar">
+              <div style={{ transform: `scaleX(${yt.state.progress})` }} />
+            </div>
+            <span>Uploading to YouTube · {(yt.state.progress * 100).toFixed(0)}%</span>
+          </div>
+        )}
+        {yt.state.kind === 'done' && (
+          <p className="done-line">
+            On YouTube ({yt.state.privacy}):{' '}
+            <a href={yt.state.video.url} target="_blank" rel="noreferrer">
+              {yt.state.video.url}
+            </a>
+            {yt.state.thumb === 'set' && ' · thumbnail set'}
+            {typeof yt.state.thumb === 'object' && ' · thumbnail not set (see step 6)'}
+          </p>
+        )}
+        {yt.state.kind === 'error' && <p className="error-text">YouTube: {yt.state.message} Fix it in step 6 and use “Upload to YouTube” there.</p>}
         <div className="actionbar-row">
           <div className="actionbar-stats">
             {audio && video ? (
@@ -613,10 +715,19 @@ export default function App() {
               <button className="btn secondary" onClick={() => abortRef.current?.abort()}>
                 Cancel rendering
               </button>
-            ) : (
-              <button className="btn" onClick={generate}>
-                {savePicker ? 'Create & save video' : 'Create video'}
+            ) : yt.state.kind === 'uploading' ? (
+              <button className="btn secondary" onClick={yt.cancel}>
+                Cancel upload
               </button>
+            ) : (
+              <>
+                <button className="btn secondary" onClick={() => generate('upload')} disabled={yt.busy}>
+                  Create & upload to YouTube
+                </button>
+                <button className="btn" onClick={() => generate('save')} disabled={yt.busy}>
+                  {savePicker ? 'Create & save video' : 'Create video'}
+                </button>
+              </>
             )}
           </div>
         </div>

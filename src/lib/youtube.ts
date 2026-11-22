@@ -40,8 +40,8 @@ function loadGis(): Promise<Google> {
 
 export type Session = { token: string; expiresAt: number };
 
-/** Opens the Google consent popup (must be called from a click handler). */
-export async function signIn(clientId: string): Promise<Session> {
+/** Opens the Google consent popup (call from a click). `prompt: 'none'` refreshes silently when consent was already given. */
+export async function signIn(clientId: string, prompt?: 'none' | 'consent' | ''): Promise<Session> {
   const google = await loadGis();
   return new Promise((resolve, reject) => {
     const client = google.accounts.oauth2.initTokenClient({
@@ -54,7 +54,7 @@ export async function signIn(clientId: string): Promise<Session> {
       error_callback: (e) =>
         reject(new Error(e.type === 'popup_closed' ? 'The Google sign-in window was closed.' : e.message || 'Google sign-in failed.')),
     });
-    client.requestAccessToken();
+    client.requestAccessToken(prompt === undefined ? undefined : { prompt });
   });
 }
 
@@ -64,10 +64,27 @@ export async function signOut(session: Session) {
 }
 
 export type Privacy = 'private' | 'unlisted' | 'public';
-export type UploadMeta = { title: string; description: string; privacy: Privacy; madeForKids: boolean; aiContent: boolean };
+export type UploadMeta = {
+  title: string;
+  description: string;
+  privacy: Privacy;
+  madeForKids: boolean;
+  aiContent: boolean;
+  /** ISO time; makes the video private until then (YouTube publishes it automatically). */
+  publishAt?: string;
+};
 export type Uploaded = { id: string; url: string };
 
-export class UploadError extends Error {}
+export class UploadError extends Error {
+  reason?: string;
+  constructor(message: string, reason?: string) {
+    super(message);
+    this.reason = reason;
+  }
+}
+
+/** True for errors that mean "stop uploading for today" (quota or channel upload limit). */
+export const isLimitError = (e: unknown) => e instanceof UploadError && (e.reason === 'quotaExceeded' || e.reason === 'uploadLimitExceeded' || e.reason === 'rateLimitExceeded');
 
 /** Uploads one file with the resumable protocol (single PUT, real progress via XHR). */
 export async function uploadVideo(
@@ -88,10 +105,18 @@ export async function uploadVideo(
     },
     body: JSON.stringify({
       snippet: { title: meta.title, description: meta.description, categoryId: '22' },
-      status: { privacyStatus: meta.privacy, selfDeclaredMadeForKids: meta.madeForKids, containsSyntheticMedia: meta.aiContent },
+      status: {
+        privacyStatus: meta.publishAt ? 'private' : meta.privacy,
+        selfDeclaredMadeForKids: meta.madeForKids,
+        containsSyntheticMedia: meta.aiContent,
+        ...(meta.publishAt ? { publishAt: meta.publishAt } : {}),
+      },
     }),
   });
-  if (!init.ok) throw new UploadError(await apiMessage(init));
+  if (!init.ok) {
+    const e = parseApiError(await init.text());
+    throw new UploadError(e.message || `YouTube refused the request (HTTP ${init.status}).`, e.reason);
+  }
   const location = init.headers.get('Location');
   if (!location) throw new UploadError('YouTube did not return an upload address. Please try again.');
 
@@ -103,7 +128,12 @@ export async function uploadVideo(
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve(xhr.responseText)
-        : reject(new UploadError(parseApiError(xhr.responseText) || `YouTube rejected the upload (HTTP ${xhr.status}).`));
+        : reject(
+            (() => {
+              const e = parseApiError(xhr.responseText);
+              return new UploadError(e.message || `YouTube rejected the upload (HTTP ${xhr.status}).`, e.reason);
+            })(),
+          );
     xhr.onerror = () => reject(new UploadError('The connection dropped during the upload. Please try again.'));
     xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
     signal.addEventListener('abort', () => xhr.abort(), { once: true });
@@ -114,18 +144,30 @@ export async function uploadVideo(
   return { id, url: `https://youtu.be/${id}` };
 }
 
-function parseApiError(text: string): string {
+function parseApiError(text: string): { message: string; reason?: string } {
   try {
     const j = JSON.parse(text) as { error?: { message?: string; errors?: { reason?: string }[] } };
     const reason = j.error?.errors?.[0]?.reason;
-    if (reason === 'quotaExceeded') return 'The daily YouTube upload quota of this Google project is used up. Try again tomorrow.';
-    if (reason === 'uploadLimitExceeded') return 'Your channel reached its daily upload limit. Try again later.';
-    if (reason === 'youtubeSignupRequired') return 'This Google account has no YouTube channel yet. Create one on youtube.com first.';
-    return j.error?.message ?? '';
+    if (reason === 'quotaExceeded') return { reason, message: 'The daily YouTube quota of this Google project is used up. Try again tomorrow.' };
+    if (reason === 'uploadLimitExceeded') return { reason, message: 'Your channel reached its daily upload limit. Try again later.' };
+    if (reason === 'rateLimitExceeded') return { reason, message: 'YouTube says you are uploading too fast. Wait a while and try again.' };
+    if (reason === 'youtubeSignupRequired') return { reason, message: 'This Google account has no YouTube channel yet. Create one on youtube.com first.' };
+    return { reason, message: j.error?.message ?? '' };
   } catch {
-    return '';
+    return { message: '' };
   }
 }
-async function apiMessage(r: Response) {
-  return parseApiError(await r.text()) || `YouTube refused the request (HTTP ${r.status}).`;
+
+/** Sets the custom thumbnail. Needs a phone-verified channel; callers should treat failure as a warning. */
+export async function setThumbnail(videoId: string, image: Blob, session: Session, signal?: AbortSignal): Promise<void> {
+  const r = await fetch(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`, {
+    method: 'POST',
+    signal,
+    headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': image.type || 'image/jpeg' },
+    body: image,
+  });
+  if (!r.ok) {
+    const e = parseApiError(await r.text());
+    throw new UploadError(e.message || `YouTube refused the thumbnail (HTTP ${r.status}).`, e.reason);
+  }
 }

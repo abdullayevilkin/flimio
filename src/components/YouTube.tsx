@@ -1,95 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
-import { fmtBytes, load, save } from '../lib/format';
-import { signIn, signOut, uploadVideo, type Privacy, type Session, type Uploaded } from '../lib/youtube';
-import { ErrorNotice, SectionHead, describeError, useFold } from './ui';
+import { fmtBytes } from '../lib/format';
+import type { Privacy } from '../lib/youtube';
+import type { Youtube } from '../lib/useYoutube';
+import { ErrorNotice, SectionHead, useFold } from './ui';
 
-const ENV_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
-
-type State =
-  | { kind: 'idle' }
-  | { kind: 'uploading'; progress: number }
-  | { kind: 'done'; video: Uploaded }
-  | { kind: 'error'; message: string; details: string };
-
-export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultTitle: string; size: number | null }) {
-  const [clientId, setClientId] = useState<string>(() => load('yt.clientId', ENV_CLIENT_ID));
-  const [title, setTitle] = useState(props.defaultTitle);
-  const titleEdited = useRef(false);
-  // Follow the File name field until the title is edited by hand; a freshly created video starts over.
-  useEffect(() => {
-    if (!titleEdited.current) setTitle(props.defaultTitle);
-  }, [props.defaultTitle]);
-  useEffect(() => {
-    titleEdited.current = false;
-    setTitle(props.defaultTitle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.getFile]);
-  const [description, setDescription] = useState<string>(() => load('yt.description', ''));
-  const [privacy, setPrivacy] = useState<Privacy>(() => load('yt.privacy', 'private'));
-  const [madeForKids, setMadeForKids] = useState<boolean>(() => load('yt.madeForKids', false));
-  const [aiContent, setAiContent] = useState<boolean>(() => load('yt.aiContent', true));
-  const [session, setSession] = useState<Session | null>(() => {
-    const saved = load<Session | null>('yt.session', null);
-    return saved && saved.expiresAt > Date.now() ? saved : null;
-  });
-  const [state, setState] = useState<State>({ kind: 'idle' });
-  const abortRef = useRef<AbortController | null>(null);
+export function YouTube(props: { yt: Youtube; fileReady: boolean; onUpload: () => void; size: number | null }) {
+  const { yt } = props;
   const fold = useFold('youtube');
-
-  useEffect(() => save('yt.clientId', clientId), [clientId]);
-  useEffect(() => save('yt.session', session), [session]);
-  useEffect(() => save('yt.description', description), [description]);
-  useEffect(() => save('yt.privacy', privacy), [privacy]);
-  useEffect(() => save('yt.madeForKids', madeForKids), [madeForKids]);
-  useEffect(() => save('yt.aiContent', aiContent), [aiContent]);
-  useEffect(() => () => abortRef.current?.abort(), []);
-
-  const id = clientId.trim();
-  const titleOk = title.trim().length > 0 && title.length <= 100;
-  const uploading = state.kind === 'uploading';
-
-  const upload = async () => {
-    if (!id || !titleOk || !props.getFile) return;
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    try {
-      let s = session;
-      if (!s || s.expiresAt < Date.now()) {
-        s = await signIn(id);
-        setSession(s);
-      }
-      setState({ kind: 'uploading', progress: 0 });
-      const file = await props.getFile!();
-      const video = await uploadVideo(file, { title: title.trim(), description, privacy, madeForKids, aiContent }, s, (progress) => setState({ kind: 'uploading', progress }), ctrl.signal);
-      setState({ kind: 'done', video });
-    } catch (e) {
-      if ((e as DOMException).name === 'AbortError') setState({ kind: 'idle' });
-      else {
-        const { message, details } = describeError(e, 'The upload to YouTube failed. Please try again.');
-        setState({ kind: 'error', message: e instanceof Error && e.message ? e.message : message, details });
-      }
-    } finally {
-      abortRef.current = null;
-    }
-  };
+  const uploading = yt.state.kind === 'uploading';
+  const busy = yt.busy;
 
   return (
     <section className={fold.cls} id="youtube" aria-labelledby="h-youtube">
       <SectionHead id="h-youtube" fold={fold} n={6} title="Publish to YouTube" sub="Upload the finished video straight from your browser. The file goes from here to YouTube only." />
-      {!props.getFile && <p className="fast-note keep">Create the video first (steps 1–4, then “Create video”). Then this section can upload it.</p>}
+      {!props.fileReady && <p className="fast-note keep">Create the video first (steps 1–4, then “Create video”), or use “Create & upload to YouTube”.</p>}
 
-      <div className="row" style={{ alignItems: "flex-start" }}>
+      <div className="row" style={{ alignItems: 'flex-start' }}>
         <label className="field" style={{ flex: '2 1 280px' }}>
           Video title
-          <input type="text" value={title} maxLength={100} onChange={(e) => {
-              titleEdited.current = true;
-              setTitle(e.target.value);
-            }} disabled={uploading} aria-invalid={!titleOk} />
-          <span className="helper">{title.length}/100</span>
+          <input type="text" value={yt.title} maxLength={100} onChange={(e) => yt.setTitle(e.target.value)} disabled={busy} aria-invalid={!yt.titleOk} />
+          <span className="helper">{yt.title.length}/100 · follows the File name until you edit it</span>
         </label>
         <label className="field">
           Visibility
-          <select value={privacy} onChange={(e) => setPrivacy(e.target.value as Privacy)} disabled={uploading}>
+          <select value={yt.privacy} onChange={(e) => yt.setPrivacy(e.target.value as Privacy)} disabled={busy}>
             <option value="private">Private</option>
             <option value="unlisted">Unlisted</option>
             <option value="public">Public</option>
@@ -97,33 +30,45 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
         </label>
       </div>
       <label className="field">
-        Description
-        <textarea rows={3} value={description} maxLength={5000} onChange={(e) => setDescription(e.target.value)} disabled={uploading} />
+        Description (template)
+        <textarea rows={4} value={yt.description} maxLength={5000} onChange={(e) => yt.setDescription(e.target.value)} disabled={busy} />
+        <span className="helper">
+          Tokens: <code>{'{show}'}</code> <code>{'{n}'}</code> <code>{'{nn}'}</code> <code>{'{title}'}</code> <code>{'{date}'}</code> — filled in for each video and remembered for the next one.
+        </span>
       </label>
+      {yt.description.includes('{') && (
+        <p className="helper" style={{ whiteSpace: 'pre-wrap' }}>
+          <strong>Preview:</strong> {yt.descriptionPreview}
+        </p>
+      )}
 
-      <fieldset className="yt-audience" disabled={uploading}>
+      <fieldset className="yt-audience" disabled={busy}>
         <legend>Audience (YouTube requires an answer)</legend>
         <label className="check">
-          <input type="radio" name="yt-kids" checked={!madeForKids} onChange={() => setMadeForKids(false)} />
+          <input type="radio" name="yt-kids" checked={!yt.madeForKids} onChange={() => yt.setMadeForKids(false)} />
           No, it’s not made for kids
         </label>
         <label className="check">
-          <input type="radio" name="yt-kids" checked={madeForKids} onChange={() => setMadeForKids(true)} />
+          <input type="radio" name="yt-kids" checked={yt.madeForKids} onChange={() => yt.setMadeForKids(true)} />
           Yes, it’s made for kids
         </label>
       </fieldset>
       <label className="check">
-        <input type="checkbox" checked={aiContent} onChange={(e) => setAiContent(e.target.checked)} disabled={uploading} />
+        <input type="checkbox" checked={yt.aiContent} onChange={(e) => yt.setAiContent(e.target.checked)} disabled={busy} />
         Altered or synthetic content — realistic AI-generated or AI-altered visuals or voices
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={yt.withThumb} onChange={(e) => yt.setWithThumb(e.target.checked)} disabled={busy} />
+        Also set the thumbnail from step 5 (needs a phone-verified YouTube channel)
       </label>
 
       <label className="field">
         Google OAuth client ID
         <input
           type="text"
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          disabled={uploading}
+          value={yt.clientId}
+          onChange={(e) => yt.setClientId(e.target.value)}
+          disabled={busy}
           placeholder="1234567890-abc….apps.googleusercontent.com"
           spellCheck={false}
           autoComplete="off"
@@ -148,48 +93,46 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
         </p>
       </details>
 
-      {state.kind === 'uploading' && (
-        <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(state.progress * 100)}>
+      {yt.state.kind === 'uploading' && (
+        <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(yt.state.progress * 100)}>
           <div className="bar">
-            <div style={{ transform: `scaleX(${state.progress})` }} />
+            <div style={{ transform: `scaleX(${yt.state.progress})` }} />
           </div>
           <span>
-            Uploading {(state.progress * 100).toFixed(0)}%{props.size ? ` of ${fmtBytes(props.size)}` : ''}
+            Uploading {(yt.state.progress * 100).toFixed(0)}%{props.size ? ` of ${fmtBytes(props.size)}` : ''}
           </span>
         </div>
       )}
-      {state.kind === 'done' && (
-        <p className="done-line">
-          Uploaded as {privacy}.{' '}
-          <a href={state.video.url} target="_blank" rel="noreferrer">
-            {state.video.url}
-          </a>{' '}
-          ·{' '}
-          <a href={`https://studio.youtube.com/video/${state.video.id}/edit`} target="_blank" rel="noreferrer">
-            Open in YouTube Studio
-          </a>
-        </p>
+      {yt.state.kind === 'done' && (
+        <>
+          <p className="done-line">
+            Uploaded as {yt.state.privacy}.{' '}
+            <a href={yt.state.video.url} target="_blank" rel="noreferrer">
+              {yt.state.video.url}
+            </a>{' '}
+            ·{' '}
+            <a href={`https://studio.youtube.com/video/${yt.state.video.id}/edit`} target="_blank" rel="noreferrer">
+              Open in YouTube Studio
+            </a>
+            {yt.state.thumb === 'set' && ' · thumbnail set'}
+          </p>
+          {typeof yt.state.thumb === 'object' && <p className="warn-text" role="status"><span>Video uploaded, but the thumbnail was not set: {yt.state.thumb.error}</span></p>}
+        </>
       )}
-      {state.kind === 'error' && <ErrorNotice message={state.message} details={state.details} />}
+      {yt.state.kind === 'error' && <ErrorNotice message={yt.state.message} details={yt.state.details} />}
 
       <div className="row">
         {uploading ? (
-          <button id="yt-upload" className="btn secondary" onClick={() => abortRef.current?.abort()}>
+          <button id="yt-upload" className="btn secondary" onClick={yt.cancel}>
             Cancel upload
           </button>
         ) : (
-          <button id="yt-upload" className="btn" onClick={upload} disabled={!id || !titleOk || !props.getFile}>
-            {session ? 'Upload to YouTube' : 'Sign in & upload to YouTube'}
+          <button id="yt-upload" className="btn" onClick={props.onUpload} disabled={busy || !yt.id || !yt.titleOk || !props.fileReady}>
+            {yt.session ? 'Upload to YouTube' : 'Sign in & upload to YouTube'}
           </button>
         )}
-        {session && !uploading && (
-          <button
-            className="btn secondary"
-            onClick={() => {
-              void signOut(session);
-              setSession(null);
-            }}
-          >
+        {yt.session && !uploading && (
+          <button className="btn secondary" onClick={yt.signOut}>
             Sign out of Google
           </button>
         )}

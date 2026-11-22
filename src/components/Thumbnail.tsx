@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fmtBytes, fmtTime, load, save } from '../lib/format';
+import { fillTemplate } from '../lib/naming';
 import { FileButton, SectionHead, useConfirm, useFold } from './ui';
 import { FONTS, ensureFont, fontCss, type FontKey } from './thumbFonts';
 
@@ -74,6 +75,62 @@ const THUMB_DEFAULTS: ThumbSettings = {
 
 const TOKENS_HINT = '{n} {nn} {show} {title}';
 
+let lastImage: File | null = null; // the picked background image, reused by renderThumbnailBlob
+
+/** Renders a thumbnail with the saved style settings (same look as the editor) — used for upload and bulk. */
+export async function renderThumbnailBlob(o: { video: File | null; show: string; episode: number; title: string }): Promise<Blob> {
+  const s: ThumbSettings = { ...THUMB_DEFAULTS, ...load<Partial<ThumbSettings>>('thumb', {}) };
+  const fields = { show: o.show, episode: o.episode, title: o.title };
+  const bigText = fillTemplate(s.bigText, fields);
+  const smallText = fillTemplate(s.smallText, fields);
+  let bitmap: ImageBitmap | null = null;
+  if (lastImage) bitmap = await createImageBitmap(lastImage);
+  else if (o.video) bitmap = await frameFromVideo(o.video, s.frameTime);
+  let logo: ImageBitmap | null = null;
+  if (s.logo) logo = await createImageBitmap(await (await fetch(s.logo)).blob()).catch(() => null);
+  await Promise.all([ensureFont(s.bigFont, 'big', bigText), ensureFont(s.smallFont, 'small', smallText)]);
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  draw(canvas, s, { bitmap, logo, bigText, smallText });
+  return canvasToThumbBlob(canvas, s.format);
+}
+
+async function canvasToThumbBlob(canvas: HTMLCanvasElement, format: 'jpg' | 'png') {
+  if (format === 'png') {
+    const png = await toBlob(canvas, 'image/png');
+    if (png.size <= MAX_BYTES) return png;
+  }
+  let quality = 0.92;
+  let blob = await toBlob(canvas, 'image/jpeg', quality);
+  while (blob.size > MAX_BYTES && quality > 0.4) {
+    quality -= 0.08;
+    blob = await toBlob(canvas, 'image/jpeg', quality);
+  }
+  return blob;
+}
+
+async function frameFromVideo(file: File, time: number): Promise<ImageBitmap | null> {
+  const url = URL.createObjectURL(file);
+  try {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.preload = 'auto';
+    v.src = url;
+    await new Promise<void>((res, rej) => {
+      v.onloadedmetadata = () => res();
+      v.onerror = () => rej(new Error('Could not read the loop video for the thumbnail.'));
+    });
+    v.currentTime = Math.min(Math.max(0, time), Math.max(0, v.duration - 0.05));
+    await new Promise<void>((res) => {
+      v.onseeked = () => res();
+    });
+    return await createImageBitmap(v);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** YouTube thumbnail maker. All style settings persist in localStorage for the next episode. */
 export function Thumbnail(props: { video: File | null; show: string; episode: number; title: string; baseName: string }) {
   const fold = useFold('thumbnail');
@@ -81,7 +138,11 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
   const set = <K extends keyof ThumbSettings>(key: K, value: ThumbSettings[K]) => setS((prev) => ({ ...prev, [key]: value }));
   useEffect(() => save('thumb', s), [s]);
 
-  const [image, setImage] = useState<File | null>(null);
+  const [image, setImageState] = useState<File | null>(null);
+  const setImage = (f: File | null) => {
+    lastImage = f;
+    setImageState(f);
+  };
   const [duration, setDuration] = useState(0);
   const [bitmap, setBitmap] = useState<ImageBitmap | null>(null);
   const [logoBitmap, setLogoImg] = useState<ImageBitmap | null>(null);
