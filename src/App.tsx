@@ -313,7 +313,7 @@ export default function App() {
           { id: 'video', label: 'Video' },
           { id: 'episode', label: 'Episode' },
           { id: 'thumbnail', label: 'Thumbnail' },
-          { id: 'youtube', label: 'YouTube' },
+          { id: 'youtube', label: 'YouTube', focus: '#yt-upload' },
         ]}
       />
 

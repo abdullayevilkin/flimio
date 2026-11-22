@@ -174,11 +174,11 @@ export function YouTube(props: { getFile: (() => Promise<Blob>) | null; defaultT
 
       <div className="row">
         {uploading ? (
-          <button className="btn secondary" onClick={() => abortRef.current?.abort()}>
+          <button id="yt-upload" className="btn secondary" onClick={() => abortRef.current?.abort()}>
             Cancel upload
           </button>
         ) : (
-          <button className="btn" onClick={upload} disabled={!id || !titleOk || !props.getFile}>
+          <button id="yt-upload" className="btn" onClick={upload} disabled={!id || !titleOk || !props.getFile}>
             {session ? 'Upload to YouTube' : 'Sign in & upload to YouTube'}
           </button>
         )}

@@ -178,7 +178,7 @@ export function SectionHead(props: { id: string; n?: number; title: string; sub?
 }
 
 /** Sticky in-page tabs: jump to a section; the one in view is highlighted (scroll-spy). */
-export function SectionNav(props: { items: { id: string; label: string }[] }) {
+export function SectionNav(props: { items: { id: string; label: string; focus?: string }[] }) {
   const [active, setActive] = useState(props.items[0]?.id);
   const listRef = useRef<HTMLOListElement>(null);
 
@@ -225,7 +225,10 @@ export function SectionNav(props: { items: { id: string; label: string }[] }) {
                 e.preventDefault();
                 const el = document.getElementById(item.id);
                 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                el?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+                // Some tabs land on their main action (e.g. the upload button) instead of the section top.
+                const action = item.focus ? document.querySelector<HTMLElement>(item.focus) : null;
+                if (action && action.offsetParent) action.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+                else el?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
                 history.replaceState(null, '', `#${item.id}`);
                 el?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
               }}
