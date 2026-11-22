@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DropZone, type Picked } from './components/DropZone';
 import { Thumbnail } from './components/Thumbnail';
 import { ErrorNotice, FoldButton, SectionHead, SectionNav, describeError, useFold } from './components/ui';
@@ -76,6 +76,9 @@ export default function App() {
   const [episode, setEpisode] = useState(() => load('episode', 1));
   const [title, setTitle] = useState(() => load('title', ''));
   const [template, setTemplate] = useState(() => load('template', DEFAULT_TEMPLATE));
+  const [bulkCount, setBulkCount] = useState({ n: 0, running: false });
+  const bulkMode = bulkCount.n >= 2;
+  const onBulkCount = useCallback((n: number, running: boolean) => setBulkCount((c) => (c.n === n && c.running === running ? c : { n, running })), []);
   const [bulkPreview, setBulkPreview] = useState<{ video: File | null; episode: number; title: string } | null>(null);
   const [rememberLoop, setRememberLoop] = useState(() => load('rememberLoop', false));
   const [loopFromStore, setLoopFromStore] = useState(false);
@@ -641,6 +644,7 @@ export default function App() {
         startEpisode={episode}
         sharedLoop={video?.file ?? null}
         onPreview={setBulkPreview}
+        onCount={onBulkCount}
         makeOpts={(o) => ({
           audio: o.audio,
           video: o.video,
@@ -716,6 +720,11 @@ export default function App() {
           </p>
         )}
         {yt.state.kind === 'error' && <p className="error-text">YouTube: {yt.state.message} Fix it in step 6 and use “Upload to YouTube” there.</p>}
+        {bulkMode && (
+          <p className="helper">
+            The bulk queue (step 7) has {bulkCount.n} episodes, so use its Start button — or clear that list to create a single episode here.
+          </p>
+        )}
         <div className="actionbar-row">
           <div className="actionbar-stats">
             {audio && video ? (
@@ -753,10 +762,10 @@ export default function App() {
               </button>
             ) : (
               <>
-                <button className="btn secondary" onClick={() => generate('upload')} disabled={yt.busy}>
+                <button className="btn secondary" onClick={() => generate('upload')} disabled={yt.busy || bulkMode}>
                   Create & upload to YouTube
                 </button>
-                <button className="btn" onClick={() => generate('save')} disabled={yt.busy}>
+                <button className="btn" onClick={() => generate('save')} disabled={yt.busy || bulkMode}>
                   {savePicker ? 'Create & save video' : 'Create video'}
                 </button>
               </>

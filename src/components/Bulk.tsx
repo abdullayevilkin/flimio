@@ -38,7 +38,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
   });
 
 /** Many episodes in one go: render each one, optionally upload it, with pauses and limits that keep YouTube happy. */
-export function Bulk(props: { yt: Youtube; show: string; template: string; startEpisode: number; sharedLoop: File | null; makeOpts: MakeOpts; onPreview: (p: { video: File | null; episode: number; title: string } | null) => void }) {
+export function Bulk(props: { yt: Youtube; show: string; template: string; startEpisode: number; sharedLoop: File | null; makeOpts: MakeOpts; onCount: (n: number, running: boolean) => void; onPreview: (p: { video: File | null; episode: number; title: string } | null) => void }) {
   const { yt } = props;
   const fold = useFold('bulk', false);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -110,6 +110,11 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     onPreview(first ? { video: first.loop, episode: first.episode, title: first.e.title } : null);
   }, [first?.loop, first?.episode, first?.e.title, onPreview]);
   useEffect(() => () => onPreview(null), [onPreview]);
+  const { onCount } = props;
+  useEffect(() => {
+    onCount(entries.length, running);
+  }, [entries.length, running, onCount]);
+  useEffect(() => () => onCount(0, false), [onCount]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -134,7 +139,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   };
   const noOpfs = !('storage' in navigator) || !navigator.storage.getDirectory;
   const canStart =
-    !running && counts.left > 0 && !loopProblem && scheduleOk && !noOpfs && items.every((i) => i.loop || i.runtime.state === 'earlier' || i.runtime.state === 'done') && (!upload || !!yt.id);
+    !running && entries.length >= 2 && counts.left > 0 && !loopProblem && scheduleOk && !noOpfs && items.every((i) => i.loop || i.runtime.state === 'earlier' || i.runtime.state === 'done') && (!upload || !!yt.id);
 
   const run = async () => {
     const ctrl = new AbortController();
@@ -427,6 +432,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
         </div>
       )}
 
+      {entries.length === 1 && <p className="helper">Only one episode here: use “Create & upload to YouTube” at the bottom of the page. The bulk queue starts from 2 episodes.</p>}
       {countdown !== null && <p className="helper">Waiting {fmtTime(countdown)} before the next upload…</p>}
       {note && <p className="warn-text" role="status"><span>{note}</span></p>}
 
