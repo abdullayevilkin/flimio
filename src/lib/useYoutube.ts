@@ -22,7 +22,7 @@ export function useYoutube(p: { defaultTitle: string; fields: NamingFields; vide
   const [title, setTitleState] = useState(p.defaultTitle);
   const [description, setDescription] = useState<string>(() => load('yt.description', ''));
   const [privacy, setPrivacy] = useState<Privacy>(() => load('yt.privacy', 'private'));
-  const [madeForKids, setMadeForKids] = useState<boolean>(() => load('yt.madeForKids', false));
+  const [madeForKids, setMadeForKids] = useState<boolean>(false); // always starts at “No, not made for kids”
   const [aiContent, setAiContent] = useState<boolean>(() => load('yt.aiContent', true));
   const [withThumb, setWithThumb] = useState<boolean>(() => load('yt.withThumb', true));
   const [session, setSession] = useState<Session | null>(() => {
@@ -36,7 +36,6 @@ export function useYoutube(p: { defaultTitle: string; fields: NamingFields; vide
   useEffect(() => save('yt.clientId', clientId), [clientId]);
   useEffect(() => save('yt.description', description), [description]);
   useEffect(() => save('yt.privacy', privacy), [privacy]);
-  useEffect(() => save('yt.madeForKids', madeForKids), [madeForKids]);
   useEffect(() => save('yt.aiContent', aiContent), [aiContent]);
   useEffect(() => save('yt.withThumb', withThumb), [withThumb]);
   useEffect(() => save('yt.session', session), [session]);

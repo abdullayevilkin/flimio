@@ -52,10 +52,12 @@ export function titleFromFileName(fileName: string): string {
 export function fillTemplate(template: string, f: NamingFields): string {
   const d = new Date();
   const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return template
+  const filled = template
     .split('{show}').join(f.show.trim())
     .split('{nn}').join(String(f.episode).padStart(2, '0'))
     .split('{n}').join(String(f.episode))
     .split('{title}').join(f.title.trim())
     .split('{date}').join(date);
+  // YouTube bolds with one asterisk: **text** → *text*
+  return filled.replace(/\*\*([^*\n]+?)\*\*/g, '*$1*');
 }

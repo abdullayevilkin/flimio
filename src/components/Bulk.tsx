@@ -69,6 +69,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [running, setRunning] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [pauseAfter, setPauseAfter] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const startMs = scheduleStart ? new Date(scheduleStart).getTime() : NaN;
@@ -234,6 +235,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
           errorsInARow = 0;
           // Pause between uploads so YouTube does not see a burst.
           if (upload && gap > 0 && n < todo.length - 1 && uploads < cap) {
+            setPauseAfter(it.episode);
             for (let s = Math.round(gap * 60); s > 0 && !ctrl.signal.aborted; s--) {
               setCountdown(s);
               await sleep(1000, ctrl.signal);
@@ -264,19 +266,25 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       if (!ctrl.signal.aborted) setNote(e instanceof Error ? e.message : 'Could not start the queue.');
     } finally {
       setCountdown(null);
+      setPauseAfter(null);
       setRunning(false);
       abortRef.current = null;
     }
   };
 
-  const eta = (i: (typeof items)[number]) => {
+  const firstQueuedId = items.find((x) => x.runtime.state === 'queued' || x.runtime.state === 'error')?.id;
+  const eta = (i: (typeof items)[number], idx: number) => {
     const r = i.runtime;
     if (r.state === 'rendering') return `Rendering ${Math.round((r.progress ?? 0) * 100)}%`;
     if (r.state === 'uploading') return `Uploading ${Math.round((r.progress ?? 0) * 100)}%`;
     if (r.state === 'done') return '✓ Uploaded';
     if (r.state === 'earlier') return '✓ Uploaded earlier';
     if (r.state === 'error') return 'Failed';
-    return 'Waiting';
+    // queued
+    if (!running) return 'Not started';
+    if (countdown !== null && i.id === firstQueuedId) return `Starts in ${fmtTime(countdown)} · pause after episode ${pauseAfter}`;
+    const before = items[idx - 1];
+    return before ? `Waits for episode ${before.episode}` : 'Next in line';
   };
 
   return (
@@ -397,10 +405,12 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
                     onChange={(ev) => setEntries((prev) => prev.map((x) => (key(x.file) === i.id ? { ...x, title: ev.target.value } : x)))}
                   />
                 </div>
-                <span className="helper">
-                  {i.e.file.name} · {fmtBytes(i.e.file.size)} · loop: {i.loop ? (loopMode === 'shared' ? 'shared' : i.loop.name) : 'missing'}
-                  {i.publishAt && ` · publishes ${new Date(i.publishAt).toLocaleString()}`}
-                </span>
+                <div className="helper bulk-meta">
+                  <span>Audio: {i.e.file.name}</span>
+                  <span>Loop: {i.loop ? (loopMode === 'shared' ? `${i.loop.name} (shared)` : i.loop.name) : 'missing'}</span>
+                  <span>Size: {fmtBytes(i.e.file.size)}</span>
+                  {i.publishAt && <span>Publishes: {new Date(i.publishAt).toLocaleString()}</span>}
+                </div>
                 {i.runtime.message && <span className={i.runtime.state === 'error' ? 'error-text' : 'helper'}>{i.runtime.message}</span>}
                 {(i.runtime.state === 'rendering' || i.runtime.state === 'uploading') && (
                   <div className="bar mini"><div style={{ transform: `scaleX(${i.runtime.progress ?? 0})` }} /></div>
@@ -417,7 +427,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
                 >
                   ✕
                 </button>
-                {eta(i)}
+                {eta(i, idx)}
                 {i.runtime.link && (
                   <>
                     {' '}
@@ -433,7 +443,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       )}
 
       {entries.length === 1 && <p className="helper">Only one episode here: use “Create & upload to YouTube” at the bottom of the page. The bulk queue starts from 2 episodes.</p>}
-      {countdown !== null && <p className="helper">Waiting {fmtTime(countdown)} before the next upload…</p>}
+      {countdown !== null && <p className="helper">Pause between uploads: the next episode starts in {fmtTime(countdown)}.</p>}
       {note && <p className="warn-text" role="status"><span>{note}</span></p>}
 
       <div className="row">

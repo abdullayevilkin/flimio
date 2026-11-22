@@ -36,7 +36,7 @@ export function YouTube(props: { yt: Youtube; fileReady: boolean; onUpload: () =
           Tokens: <code>{'{show}'}</code> <code>{'{n}'}</code> <code>{'{nn}'}</code> <code>{'{title}'}</code> <code>{'{date}'}</code> — filled in for each video and remembered for the next one.
         </span>
       </label>
-      {yt.description.includes('{') && (
+      {(yt.description.includes('{') || yt.description.includes('**')) && (
         <p className="helper" style={{ whiteSpace: 'pre-wrap' }}>
           <strong>Preview:</strong> {yt.descriptionPreview}
         </p>

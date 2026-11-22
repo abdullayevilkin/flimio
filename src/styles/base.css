@@ -321,3 +321,6 @@ html { scroll-behavior: smooth; }
 .bulk-x:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
 .bulk-x:disabled { opacity: 0.4; cursor: not-allowed; }
 .bulk-x:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+
+.bulk-meta { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.bulk-state { white-space: normal; text-align: right; max-width: 240px; justify-content: flex-end; flex-wrap: wrap; }
