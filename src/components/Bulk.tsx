@@ -14,6 +14,10 @@ type Entry = { file: File; title: string };
 const key = (f: File) => `${f.name}|${f.size}`;
 const natural = (a: File, b: File) => a.name.localeCompare(b.name, undefined, { numeric: true });
 const DAY = 86_400_000;
+const leadingNumber = (f: File) => {
+  const m = /^\s*(\d+)/.exec(f.name);
+  return m ? parseInt(m[1], 10) : null;
+};
 
 type DirPicker = () => Promise<FileSystemDirectoryHandle>;
 const dirPicker = (window as unknown as { showDirectoryPicker?: DirPicker }).showDirectoryPicker;
@@ -69,19 +73,36 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
 
   const startMs = scheduleStart ? new Date(scheduleStart).getTime() : NaN;
   const scheduleOk = !schedule || (Number.isFinite(startMs) && startMs > Date.now() + 5 * 60_000);
-  const eachMismatch = loopMode === 'each' && loops.length !== entries.length;
+  // "1 xxx" ↔ "1 n": match by the number at the start of the file names; without numbers, match by order.
+  const loopByNumber = useMemo(() => {
+    const nums = [...entries.map((e) => leadingNumber(e.file)), ...loops.map(leadingNumber)];
+    if (!entries.length || !loops.length || nums.some((n) => n === null)) return null;
+    const m = new Map<number, File>();
+    for (const l of loops) m.set(leadingNumber(l)!, l);
+    return m.size === loops.length ? m : null;
+  }, [entries, loops]);
 
   const items = useMemo(
     () =>
       entries.map((e, i) => {
         const id = key(e.file);
-        const loop = loopMode === 'shared' ? props.sharedLoop : loops[i] ?? null;
+        const loop = loopMode === 'shared' ? props.sharedLoop : loopByNumber ? loopByNumber.get(leadingNumber(e.file)!) ?? null : loops[i] ?? null;
         const runtime: Runtime = rt[id] ?? (doneMap[id] ? { state: 'earlier', link: doneMap[id] } : { state: 'queued' });
         const publishAt = upload && schedule && Number.isFinite(startMs) ? new Date(startMs + i * everyDays * DAY).toISOString() : undefined;
         return { id, e, loop, episode: startEp + i, runtime, publishAt };
       }),
-    [entries, loops, loopMode, props.sharedLoop, rt, doneMap, startEp, upload, schedule, startMs, everyDays],
+    [entries, loops, loopMode, loopByNumber, props.sharedLoop, rt, doneMap, startEp, upload, schedule, startMs, everyDays],
   );
+  const loopProblem =
+    loopMode !== 'each' || !entries.length
+      ? null
+      : loopByNumber
+        ? items.filter((i) => !i.loop).length
+          ? `No loop for episode ${items.filter((i) => !i.loop).map((i) => leadingNumber(i.e.file)).join(', ')}.`
+          : null
+        : loops.length !== entries.length
+          ? `The number of loops (${loops.length}) must match the number of audio files (${entries.length}).`
+          : null;
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -106,7 +127,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   };
   const noOpfs = !('storage' in navigator) || !navigator.storage.getDirectory;
   const canStart =
-    !running && counts.left > 0 && !eachMismatch && scheduleOk && !noOpfs && items.every((i) => i.loop || i.runtime.state === 'earlier' || i.runtime.state === 'done') && (!upload || !!yt.id);
+    !running && counts.left > 0 && !loopProblem && scheduleOk && !noOpfs && items.every((i) => i.loop || i.runtime.state === 'earlier' || i.runtime.state === 'done') && (!upload || !!yt.id);
 
   const run = async () => {
     const ctrl = new AbortController();
@@ -240,8 +261,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     const r = i.runtime;
     if (r.state === 'rendering') return `Rendering ${Math.round((r.progress ?? 0) * 100)}%`;
     if (r.state === 'uploading') return `Uploading ${Math.round((r.progress ?? 0) * 100)}%`;
-    if (r.state === 'done') return 'Done';
-    if (r.state === 'earlier') return 'Uploaded earlier';
+    if (r.state === 'done') return '✓ Uploaded';
+    if (r.state === 'earlier') return '✓ Uploaded earlier';
     if (r.state === 'error') return 'Failed';
     return 'Waiting';
   };
@@ -274,14 +295,15 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
         </label>
         <label className="check">
           <input type="radio" name="bulk-loop" checked={loopMode === 'each'} onChange={() => setLoopMode('each')} />
-          A different loop for each episode (matched by file name order)
+          A different loop for each episode (“1 xxx” ↔ “1 n”: matched by the number at the start of the file name)
         </label>
       </fieldset>
       {loopMode === 'each' && (
         <div className="row">
           <FileButton className="btn secondary" accept="video/*,.mp4,.mov,.webm" label="Add loop videos" multiple onFiles={(l) => l && setLoops([...l].sort(natural))} disabled={running} />
           <span className="helper">{loops.length} loop videos</span>
-          {eachMismatch && entries.length > 0 && <span className="error-text">The number of loops ({loops.length}) must match the number of audio files ({entries.length}).</span>}
+          {loopProblem && <span className="error-text">{loopProblem}</span>}
+          {!loopProblem && loops.length > 0 && <span className="helper">{loopByNumber ? 'Matched by the number at the start of the file names.' : 'No numbers in the names, matched by order.'}</span>}
         </div>
       )}
 
@@ -373,6 +395,16 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
                 )}
               </div>
               <span className="bulk-state">
+                <button
+                  type="button"
+                  className="bulk-x"
+                  aria-label={`Remove ${i.e.file.name} from the list`}
+                  title="Remove from the list"
+                  disabled={running && (i.runtime.state === 'rendering' || i.runtime.state === 'uploading')}
+                  onClick={() => setEntries((prev) => prev.filter((x) => key(x.file) !== i.id))}
+                >
+                  ✕
+                </button>
                 {eta(i)}
                 {i.runtime.link && (
                   <>
