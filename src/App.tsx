@@ -88,6 +88,14 @@ export default function App() {
   const useNormalize = !fastMode && normalize;
   const useCompress = !fastMode && compress;
   const running = status.kind === 'running';
+  const audioWarning = (() => {
+    if (!audio) return null;
+    const small = audio.info.size < 8 * 1024 * 1024;
+    const short = audio.info.duration < 30;
+    if (!small && !short) return null;
+    const what = small && short ? 'small and short' : small ? 'small' : 'short';
+    return `This audio looks ${what} (${fmtBytes(audio.info.size)}, ${fmtTime(audio.info.duration)}). Check that you picked the right recording.`;
+  })();
 
   // Warn before leaving with work in progress (files can't be restored after a reload).
   useEffect(() => {
@@ -269,7 +277,15 @@ export default function App() {
   return (
     <main className="page">
       <header className="page-head">
-        <h1>Flimio</h1>
+        <div className="titlerow">
+          <h1>Flimio</h1>
+          <span className="epbadge" title="Current episode number">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 1.5l1.9 4.1 4.5.5-3.3 3 .9 4.4L8 11.3l-4 2.2.9-4.4-3.3-3 4.5-.5L8 1.5z" fill="currentColor" />
+            </svg>
+            Episode {episode}
+          </span>
+        </div>
         <p className="lede">
           Turn a long audio recording and a short looping video into an MP4 ready for YouTube. Everything runs in your
           browser — your files never leave your computer.
@@ -314,6 +330,7 @@ export default function App() {
             disabled={running}
             required
             error={fileError.audio ?? (submitted ? missingAudio : null)}
+            warning={audioWarning}
             onFile={(f) => pick('audio', f)}
           >
             {audio && <audio src={audio.url} controls preload="metadata" />}

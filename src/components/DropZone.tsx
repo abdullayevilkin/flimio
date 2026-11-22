@@ -16,6 +16,7 @@ export function DropZone(props: {
   required?: boolean;
   error?: string | null;
   note?: string | null;
+  warning?: string | null;
   /** Feature unavailable (e.g. Fast mode): fade everything except the explanation. */
   dimmed?: boolean;
   onFile: (f: File | undefined) => void;
@@ -81,6 +82,14 @@ export function DropZone(props: {
         </>
       )}
       {props.note && <p className={props.dimmed ? 'fast-note' : 'helper'}>{props.note}</p>}
+      {props.warning && (
+        <p className="warn-text" role="status">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2L1.5 13.5h13L8 2zM8 6.5v3.5M8 11.8v.2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>{props.warning}</span>
+        </p>
+      )}
       {props.error && (
         <p className="error-text" id={errorId}>
           {props.error}

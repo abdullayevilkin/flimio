@@ -90,7 +90,7 @@ a { color: var(--accent-text); }
   display: flex; flex-direction: column; gap: var(--space-4);
   margin-top: var(--space-4); padding: var(--space-6);
   background: var(--surface-1); border: 1px solid var(--border-1); border-radius: 16px; box-shadow: var(--edge-light);
-  scroll-margin-top: 72px;
+  scroll-margin-top: 112px;
 }
 @media (max-width: 767.98px) { .section { padding: var(--space-4); } }
 .section-head { padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-1); }
@@ -285,3 +285,17 @@ html { scroll-behavior: smooth; }
 .yt-audience legend { padding: 0; font-size: var(--text-secondary); font-weight: 500; margin-bottom: var(--space-1); }
 .check input[type='radio'] { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .subfold-head.clickable { cursor: pointer; user-select: none; }
+
+.titlerow { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.epbadge {
+  display: inline-flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: 0 var(--space-3);
+  border-radius: 999px; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--text);
+  font-size: var(--text-secondary); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.epbadge svg { color: var(--accent-text, var(--accent)); }
+.warn-text {
+  display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3);
+  border: 1px solid #b7862b; border-radius: var(--radius); background: rgba(245, 185, 66, 0.1); color: #f5c76a;
+  font-size: var(--text-secondary);
+}
+.warn-text svg { flex-shrink: 0; margin-top: 2px; }
