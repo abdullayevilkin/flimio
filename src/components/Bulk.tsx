@@ -70,7 +70,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [cap, setCap] = useState<number>(() => load('bulk.cap', 5));
   const [longPause, setLongPause] = useState<number>(() => load('bulk.longPause', 60));
   const [keepGoing, setKeepGoing] = useState<boolean>(() => load('bulk.keepGoing', true));
-  const [gap, setGap] = useState<number>(() => load('bulk.gap', 2));
+  const [gap, setGap] = useState<number>(() => load<number>('bulk.gapSec', load<number>('bulk.gap', 2) * 60)); // seconds
   const [schedule, setSchedule] = useState<boolean>(() => load('bulk.schedule', false));
   const [scheduleStart, setScheduleStart] = useState<string>(() => load('bulk.scheduleStart', ''));
   const [everyDays, setEveryDays] = useState<number>(() => load('bulk.everyDays', 1));
@@ -79,7 +79,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   useEffect(() => save('bulk.cap', cap), [cap]);
   useEffect(() => save('bulk.longPause', longPause), [longPause]);
   useEffect(() => save('bulk.keepGoing', keepGoing), [keepGoing]);
-  useEffect(() => save('bulk.gap', gap), [gap]);
+  useEffect(() => save('bulk.gapSec', gap), [gap]);
   useEffect(() => save('bulk.schedule', schedule), [schedule]);
   useEffect(() => save('bulk.scheduleStart', scheduleStart), [scheduleStart]);
   useEffect(() => save('bulk.everyDays', everyDays), [everyDays]);
@@ -178,9 +178,9 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     let uploads = 0;
     let errorsInARow = 0;
     let limitRetries = 0;
-    const pauseFor = async (minutes: number, why: string) => {
+    const pauseFor = async (seconds: number, why: string) => {
       setPauseWhy(why);
-      for (let s = Math.round(minutes * 60); s > 0 && !ctrl.signal.aborted && !skipRef.current; s--) {
+      for (let s = Math.round(seconds); s > 0 && !ctrl.signal.aborted && !skipRef.current; s--) {
         setCountdown(s);
         await sleep(1000, ctrl.signal);
       }
@@ -282,8 +282,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
               setNote(`Stopped after ${uploads} uploads. ${todo.length - n - 1} left in the queue — press Continue to go on.`);
               break;
             }
-            const minutes = batchEnd ? longPause : gap;
-            if (minutes > 0) await pauseFor(minutes, batchEnd ? `long pause after ${uploads} uploads` : `pause after episode ${it.episode}`);
+            const seconds = batchEnd ? longPause * 60 : gap;
+            if (seconds > 0) await pauseFor(seconds, batchEnd ? `long pause after ${uploads} uploads` : `pause after episode ${it.episode}`);
           }
         } catch (e) {
           if ((e as DOMException).name === 'AbortError') {
@@ -296,7 +296,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
             if (keepGoing && limitRetries < 24) {
               limitRetries++;
               setNote(`${message} Trying again automatically in 60 minutes (keep this page open).`);
-              await pauseFor(60, 'YouTube limit reached, trying again');
+              await pauseFor(3600, 'YouTube limit reached, trying again');
               setNote(null);
               n--; // same episode again
               continue;
@@ -433,8 +433,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
         <>
           <div className="row">
             <label className="field narrow">
-              Wait between uploads (min)
-              <input type="number" min={0} max={60} value={gap} onChange={(e) => setGap(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
+              Wait between uploads (sec)
+              <input type="number" min={0} max={3600} step={5} value={gap} onChange={(e) => setGap(Math.max(0, Math.round(Number(e.target.value)) || 0))} disabled={running} />
             </label>
             <label className="field narrow">
               Long pause after every (uploads)
