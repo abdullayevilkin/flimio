@@ -217,6 +217,18 @@ export default function App() {
   const missingAudio = !audio ? 'Add an audio file to create the video.' : null;
   const missingVideo = !video ? 'Add a loop video to create the video.' : null;
 
+  /** Uploads the video that was already created (also the Retry after an error). */
+  const retryUpload = async () => {
+    if (status.kind !== 'done') return;
+    try {
+      await yt.ensureSession();
+    } catch {
+      return;
+    }
+    setUploadStart(Date.now());
+    await yt.publish(await status.getFile());
+  };
+
   const generate = async (mode: 'save' | 'upload' = 'save') => {
     setSubmitted(true);
     setTrimUi({ start: { touched: true, editing: false }, end: { touched: true, editing: false } });
@@ -630,16 +642,7 @@ export default function App() {
         yt={yt}
         fileReady={status.kind === 'done'}
         size={status.kind === 'done' ? status.size : null}
-        onUpload={async () => {
-          if (status.kind !== 'done') return;
-          try {
-            await yt.ensureSession();
-          } catch {
-            return;
-          }
-          setUploadStart(Date.now());
-          await yt.publish(await status.getFile());
-        }}
+        onUpload={retryUpload}
       />
 
       <Bulk
@@ -731,7 +734,18 @@ export default function App() {
             {typeof yt.state.thumb === 'object' && ' · thumbnail not set (see step 6)'}
           </p>
         )}
-        {yt.state.kind === 'error' && <p className="error-text">YouTube: {yt.state.message} Fix it in step 6 and use “Upload to YouTube” there.</p>}
+        {yt.state.kind === 'error' && (
+          <p className="error-text">
+            YouTube: {yt.state.message}{' '}
+            {status.kind === 'done' ? (
+              <button type="button" className="btn compact" onClick={() => void retryUpload()}>
+                Retry
+              </button>
+            ) : (
+              'Fix it in step 6 and try again.'
+            )}
+          </p>
+        )}
         {bulkMode && bulkStatus && <BulkBar s={bulkStatus} />}
         <div className="actionbar-row">
           <div className="actionbar-stats">

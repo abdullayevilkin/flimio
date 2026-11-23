@@ -553,7 +553,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
                 )}
                 {!running && (i.runtime.state === 'queued' || i.runtime.state === 'error') && baseOk && (!!i.loop) && (
                   <button type="button" className="btn secondary compact" onClick={() => void run(i.id)} title="Start the queue from this episode (earlier ones stay as they are)">
-                    Start from here
+                    {i.runtime.state === 'error' ? 'Retry' : 'Start from here'}
                   </button>
                 )}
                 {i.runtime.link && (

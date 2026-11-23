@@ -86,6 +86,8 @@ export class UploadError extends Error {
 /** True for errors that mean "stop uploading for today" (quota or channel upload limit). */
 export const isLimitError = (e: unknown) => e instanceof UploadError && (e.reason === 'quotaExceeded' || e.reason === 'uploadLimitExceeded' || e.reason === 'rateLimitExceeded');
 
+class Retryable extends Error {}
+
 /** Uploads one file with the resumable protocol (single PUT, real progress via XHR). */
 export async function uploadVideo(
   file: Blob,
@@ -120,25 +122,80 @@ export async function uploadVideo(
   const location = init.headers.get('Location');
   if (!location) throw new UploadError('YouTube did not return an upload address. Please try again.');
 
-  const body = await new Promise<string>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', location);
-    xhr.setRequestHeader('Content-Type', 'video/mp4');
-    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve(xhr.responseText)
-        : reject(
-            (() => {
-              const e = parseApiError(xhr.responseText);
-              return new UploadError(e.message || `YouTube rejected the upload (HTTP ${xhr.status}).`, e.reason);
-            })(),
-          );
-    xhr.onerror = () => reject(new UploadError('The connection dropped during the upload. Please try again.'));
-    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
-    signal.addEventListener('abort', () => xhr.abort(), { once: true });
-    xhr.send(file);
-  });
+  const total = file.size;
+  const SEND_STALL_MS = 90_000; // no progress while sending
+  const ANSWER_WAIT_MS = 180_000; // everything is sent but YouTube has not answered
+
+  /** One PUT with the bytes from `offset` on. Rejects with Retryable when the connection drops or goes silent. */
+  const putFrom = (offset: number) =>
+    new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let stalled = false;
+      let watchdog = 0;
+      const arm = (ms: number) => {
+        clearTimeout(watchdog);
+        watchdog = window.setTimeout(() => ((stalled = true), xhr.abort()), ms);
+      };
+      xhr.open('PUT', location);
+      xhr.setRequestHeader('Content-Type', 'video/mp4');
+      if (offset > 0) xhr.setRequestHeader('Content-Range', `bytes ${offset}-${total - 1}/${total}`);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress((offset + e.loaded) / total);
+        arm(SEND_STALL_MS);
+      };
+      xhr.upload.onload = () => arm(ANSWER_WAIT_MS);
+      xhr.onload = () => {
+        clearTimeout(watchdog);
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(xhr.responseText);
+        const e = parseApiError(xhr.responseText);
+        const err = new UploadError(e.message || `YouTube rejected the upload (HTTP ${xhr.status}).`, e.reason);
+        reject(xhr.status >= 500 ? new Retryable(err.message) : err);
+      };
+      xhr.onerror = () => (clearTimeout(watchdog), reject(new Retryable('The connection dropped during the upload.')));
+      xhr.onabort = () => (clearTimeout(watchdog), reject(stalled ? new Retryable('YouTube stopped answering.') : new DOMException('Aborted', 'AbortError')));
+      signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      xhr.send(offset > 0 ? file.slice(offset) : file);
+    });
+
+  /** Asks YouTube how much it already has (or the finished video, when the last answer got lost). */
+  const askStatus = () =>
+    new Promise<{ done: true; body: string } | { done: false; offset: number }>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', location);
+      xhr.setRequestHeader('Content-Range', `bytes */${total}`);
+      xhr.timeout = 30_000;
+      xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 201) return resolve({ done: true, body: xhr.responseText });
+        if (xhr.status === 308) {
+          const m = /bytes=0-(\d+)/.exec(xhr.getResponseHeader('Range') ?? '');
+          return resolve({ done: false, offset: m ? Number(m[1]) + 1 : 0 });
+        }
+        reject(new Error(`status ${xhr.status}`));
+      };
+      xhr.onerror = xhr.ontimeout = () => reject(new Error('status check failed'));
+      signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      xhr.send();
+    });
+
+  let body = '';
+  let offset = 0;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      body = await putFrom(offset);
+      break;
+    } catch (e) {
+      if (!(e instanceof Retryable)) throw e;
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (attempt >= 4) throw new UploadError(`${e.message} The upload could not be finished. Press Retry.`);
+      await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+      const st = await askStatus().catch(() => null);
+      if (st?.done) {
+        body = st.body; // YouTube already had everything; only the answer was lost
+        break;
+      }
+      if (st) offset = st.offset;
+    }
+  }
   const id = (JSON.parse(body) as { id?: string }).id;
   if (!id) throw new UploadError('YouTube accepted the file but returned no video id.');
   return { id, url: `https://youtu.be/${id}` };
