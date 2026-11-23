@@ -79,6 +79,7 @@ export default function App() {
   const [bulkCount, setBulkCount] = useState({ n: 0, running: false });
   const bulkMode = bulkCount.n >= 2;
   const onBulkCount = useCallback((n: number, running: boolean) => setBulkCount((c) => (c.n === n && c.running === running ? c : { n, running })), []);
+  const [uploadStart, setUploadStart] = useState<number | null>(null); // single upload: the clock starts after the Google sign-in
   const bulkRef = useRef<BulkControl | null>(null);
   const [bulkStatus, setBulkStatus] = useState<BulkStatus | null>(null);
   const [bulkPreview, setBulkPreview] = useState<{ video: File | null; episode: number; title: string } | null>(null);
@@ -238,6 +239,7 @@ export default function App() {
       }
       try {
         await yt.ensureSession();
+        setUploadStart(Date.now());
       } catch {
         document.getElementById('youtube')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
@@ -635,6 +637,7 @@ export default function App() {
           } catch {
             return;
           }
+          setUploadStart(Date.now());
           await yt.publish(await status.getFile());
         }}
       />
@@ -681,6 +684,11 @@ export default function App() {
           <p className="notice warn">
             This browser keeps the result in memory (~{fmtBytes(estimate)}). Use Chrome or Edge for big files
             {fastMode ? '.' : ', or turn on “Compress loop video”.'}
+          </p>
+        )}
+        {uploadStart !== null && !bulkMode && (running || yt.state.kind === 'uploading') && (
+          <p className="bulkbar-head">
+            Upload running for <strong><Elapsed since={uploadStart} /></strong>
           </p>
         )}
         {status.kind === 'running' && <Progress status={status} />}

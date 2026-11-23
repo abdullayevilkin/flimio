@@ -68,7 +68,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
 
   const [upload, setUpload] = useState<boolean>(() => load('bulk.upload', true));
   const [cap, setCap] = useState<number>(() => load('bulk.cap', 5));
-  const [longPause, setLongPause] = useState<number>(() => load('bulk.longPause', 60));
+  const [longPause, setLongPause] = useState<number>(() => load<number>('bulk.longPauseSec', load<number>('bulk.longPause', 60) * 60)); // seconds
   const [keepGoing, setKeepGoing] = useState<boolean>(() => load('bulk.keepGoing', true));
   const [gap, setGap] = useState<number>(() => load<number>('bulk.gapSec', load<number>('bulk.gap', 2) * 60)); // seconds
   const [schedule, setSchedule] = useState<boolean>(() => load('bulk.schedule', false));
@@ -77,7 +77,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [dir, setDir] = useState<FileSystemDirectoryHandle | null>(null);
   useEffect(() => save('bulk.upload', upload), [upload]);
   useEffect(() => save('bulk.cap', cap), [cap]);
-  useEffect(() => save('bulk.longPause', longPause), [longPause]);
+  useEffect(() => save('bulk.longPauseSec', longPause), [longPause]);
   useEffect(() => save('bulk.keepGoing', keepGoing), [keepGoing]);
   useEffect(() => save('bulk.gapSec', gap), [gap]);
   useEffect(() => save('bulk.schedule', schedule), [schedule]);
@@ -282,8 +282,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
               setNote(`Stopped after ${uploads} uploads. ${todo.length - n - 1} left in the queue — press Continue to go on.`);
               break;
             }
-            const seconds = batchEnd ? longPause * 60 : gap;
-            if (seconds > 0) await pauseFor(seconds, batchEnd ? `long pause after ${uploads} uploads` : `pause after episode ${it.episode}`);
+            const seconds = (batchEnd ? longPause : gap) + 1 + Math.floor(Math.random() * 10); // plus a random 1–10 s each time
+            await pauseFor(seconds, batchEnd ? `long pause after ${uploads} uploads` : `pause after episode ${it.episode}`);
           }
         } catch (e) {
           if ((e as DOMException).name === 'AbortError') {
@@ -441,12 +441,12 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
               <input type="number" min={0} max={50} value={cap} onChange={(e) => setCap(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
             </label>
             <label className="field narrow">
-              Long pause (minutes)
-              <input type="number" min={0} max={1440} value={longPause} onChange={(e) => setLongPause(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
+              Long pause (sec)
+              <input type="number" min={0} max={86400} step={30} value={longPause} onChange={(e) => setLongPause(Math.max(0, Math.round(Number(e.target.value)) || 0))} disabled={running} />
             </label>
           </div>
           <p className="helper">
-            The queue keeps going on its own: a short wait after each upload and a long pause after every group (0 minutes = stop there instead). Leave this page open and the computer awake; the screen is kept on while it runs.
+            The queue keeps going on its own: a short wait after each upload and a long pause after every group (0 seconds = stop there instead). Every wait gets a random 1–10 seconds added. Leave this page open and the computer awake; the screen is kept on while it runs.
           </p>
           <label className="check">
             <input type="checkbox" checked={keepGoing} onChange={(e) => setKeepGoing(e.target.checked)} disabled={running} />
