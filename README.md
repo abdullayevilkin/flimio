@@ -49,3 +49,11 @@ npm run build    # dist/
 ## Deploy
 
 Every push to `main` builds and deploys to GitHub Pages via `.github/workflows/deploy.yml`.
+
+### Bulk queue controls
+
+- **Skip wait** (row, panel or bottom bar) ends the current pause and starts the next episode in 1 second.
+- **Start from here** on a not-started row starts the queue at that episode (useful after the computer was off).
+- The bottom bar shows the running episode, progress, time since Start, the next-episode countdown and the last result or error.
+- With 2 or more episodes, the bottom “Create & upload to YouTube” button starts the bulk queue; with one episode it renders and uploads that episode.
+- The thumbnail's Big text defaults to `{show}` (the Show name).

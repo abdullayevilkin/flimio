@@ -11,6 +11,22 @@ type ItemState = 'queued' | 'rendering' | 'uploading' | 'done' | 'error' | 'earl
 type Runtime = { state: ItemState; progress?: number; link?: string; message?: string };
 type Entry = { file: File; title: string };
 
+/** What the page-bottom bar shows about the queue. */
+export type BulkStatus = {
+  total: number;
+  done: number;
+  running: boolean;
+  canStart: boolean;
+  startedAt: number | null;
+  current: { episode: number; title: string; stage: 'rendering' | 'uploading'; progress: number } | null;
+  countdown: number | null;
+  pauseWhy: string;
+  note: string | null;
+  lastDone: { episode: number; title: string; url?: string } | null;
+  lastError: { episode: number; message: string } | null;
+};
+export type BulkControl = { start: () => void; stop: () => void; skipWait: () => void };
+
 const key = (f: File) => `${f.name}|${f.size}`;
 const natural = (a: File, b: File) => a.name.localeCompare(b.name, undefined, { numeric: true });
 const DAY = 86_400_000;
@@ -38,7 +54,7 @@ const sleep = (ms: number, signal: AbortSignal) =>
   });
 
 /** Many episodes in one go: render each one, optionally upload it, with pauses and limits that keep YouTube happy. */
-export function Bulk(props: { yt: Youtube; show: string; template: string; startEpisode: number; sharedLoop: File | null; makeOpts: MakeOpts; onCount: (n: number, running: boolean) => void; onPreview: (p: { video: File | null; episode: number; title: string } | null) => void }) {
+export function Bulk(props: { yt: Youtube; show: string; template: string; startEpisode: number; sharedLoop: File | null; makeOpts: MakeOpts; onCount: (n: number, running: boolean) => void; controlRef: { current: BulkControl | null }; onStatus: (s: BulkStatus) => void; onPreview: (p: { video: File | null; episode: number; title: string } | null) => void }) {
   const { yt } = props;
   const fold = useFold('bulk', false);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -75,6 +91,10 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [countdown, setCountdown] = useState<number | null>(null);
   const [pauseWhy, setPauseWhy] = useState('');
   const abortRef = useRef<AbortController | null>(null);
+  const skipRef = useRef(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [lastDone, setLastDone] = useState<BulkStatus['lastDone']>(null);
+  const [lastError, setLastError] = useState<BulkStatus['lastError']>(null);
 
   const startMs = scheduleStart ? new Date(scheduleStart).getTime() : NaN;
   const scheduleOk = !schedule || (Number.isFinite(startMs) && startMs > Date.now() + 5 * 60_000);
@@ -143,23 +163,27 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     left: items.filter((i) => i.runtime.state === 'queued' || i.runtime.state === 'error').length,
   };
   const noOpfs = !('storage' in navigator) || !navigator.storage.getDirectory;
-  const canStart =
-    !running && entries.length >= 2 && counts.left > 0 && !loopProblem && scheduleOk && !noOpfs && items.every((i) => i.loop || i.runtime.state === 'earlier' || i.runtime.state === 'done') && (!upload || !!yt.id);
+  const baseOk = !running && entries.length >= 2 && !loopProblem && scheduleOk && !noOpfs && (!upload || !!yt.id);
+  const canStart = baseOk && counts.left > 0 && items.every((i) => i.loop || i.runtime.state === 'earlier' || i.runtime.state === 'done');
 
-  const run = async () => {
+  const run = async (fromId?: string) => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    skipRef.current = false;
     setRunning(true);
+    setStartedAt(Date.now());
+    setLastError(null);
     setNote(null);
     let uploads = 0;
     let errorsInARow = 0;
     let limitRetries = 0;
     const pauseFor = async (minutes: number, why: string) => {
       setPauseWhy(why);
-      for (let s = Math.round(minutes * 60); s > 0 && !ctrl.signal.aborted; s--) {
+      for (let s = Math.round(minutes * 60); s > 0 && !ctrl.signal.aborted && !skipRef.current; s--) {
         setCountdown(s);
         await sleep(1000, ctrl.signal);
       }
+      skipRef.current = false;
       setCountdown(null);
     };
     // Keep the screen awake while the queue runs, so the computer does not fall asleep mid-way.
@@ -168,7 +192,9 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     try {
       if (upload) await yt.ensureSession(); // inside the click, so the Google popup is allowed
       const root = await navigator.storage.getDirectory();
-      const todo = itemsRef.current.filter((i) => i.runtime.state === 'queued' || i.runtime.state === 'error');
+      const all = itemsRef.current;
+      const from = fromId ? all.findIndex((x) => x.id === fromId) : 0;
+      const todo = all.filter((i, idx) => idx >= Math.max(0, from) && (i.runtime.state === 'queued' || i.runtime.state === 'error'));
       for (let n = 0; n < todo.length; n++) {
         if (ctrl.signal.aborted) break;
         const it = itemsRef.current.find((x) => x.id === todo[n].id)!;
@@ -244,6 +270,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
             });
           }
           patch(it.id, { state: 'done', link, message: thumbWarn.trim() || undefined });
+          setLastDone({ episode: it.episode, title: it.e.title, url: link });
           errorsInARow = 0;
           limitRetries = 0;
           // Pause between uploads so YouTube does not see a burst; a longer one after every `cap` uploads.
@@ -276,6 +303,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
             break;
           }
           patch(it.id, { state: 'error', message });
+          setLastError({ episode: it.episode, message });
           if (++errorsInARow >= 3) {
             setNote('Three failures in a row, so the queue stopped. Check the messages, then press Start to retry.');
             break;
@@ -291,9 +319,32 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       setPauseWhy('');
       void wake?.release().catch(() => {});
       setRunning(false);
+      setStartedAt(null);
       abortRef.current = null;
     }
   };
+
+  // Report to the bar at the bottom of the page (progress rounded to whole percent, so it does not re-render too often).
+  const busyItem = items.find((x) => x.runtime.state === 'rendering' || x.runtime.state === 'uploading');
+  const pct = busyItem ? Math.round((busyItem.runtime.progress ?? 0) * 100) : 0;
+  const { onStatus, controlRef } = props;
+  useEffect(() => {
+    onStatus({
+      total: entries.length,
+      done: counts.done,
+      running,
+      canStart,
+      startedAt,
+      current: busyItem ? { episode: busyItem.episode, title: busyItem.e.title, stage: busyItem.runtime.state as 'rendering' | 'uploading', progress: pct / 100 } : null,
+      countdown,
+      pauseWhy,
+      note,
+      lastDone,
+      lastError,
+    });
+  }, [entries.length, counts.done, running, canStart, startedAt, busyItem?.id, busyItem?.runtime.state, pct, countdown, pauseWhy, note, lastDone, lastError, onStatus]);
+  useEffect(() => () => onStatus({ total: 0, done: 0, running: false, canStart: false, startedAt: null, current: null, countdown: null, pauseWhy: '', note: null, lastDone: null, lastError: null }), [onStatus]);
+  controlRef.current = { start: () => void run(), stop: () => abortRef.current?.abort(), skipWait: () => (skipRef.current = true) };
 
   const firstQueuedId = items.find((x) => x.runtime.state === 'queued' || x.runtime.state === 'error')?.id;
   const eta = (i: (typeof items)[number], idx: number) => {
@@ -459,6 +510,16 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
                   ✕
                 </button>
                 {eta(i, idx)}
+                {running && countdown !== null && i.id === firstQueuedId && (
+                  <button type="button" className="btn secondary compact" onClick={() => (skipRef.current = true)} title="Skip the wait: the next episode starts in 1 second">
+                    Skip wait
+                  </button>
+                )}
+                {!running && (i.runtime.state === 'queued' || i.runtime.state === 'error') && baseOk && (!!i.loop) && (
+                  <button type="button" className="btn secondary compact" onClick={() => void run(i.id)} title="Start the queue from this episode (earlier ones stay as they are)">
+                    Start from here
+                  </button>
+                )}
                 {i.runtime.link && (
                   <>
                     {' '}
@@ -474,7 +535,14 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       )}
 
       {entries.length === 1 && <p className="helper">Only one episode here: use “Create & upload to YouTube” at the bottom of the page. The bulk queue starts from 2 episodes.</p>}
-      {countdown !== null && <p className="helper">Pause ({pauseWhy}): the next episode starts in {fmtTime(countdown)}.</p>}
+      {countdown !== null && (
+        <p className="helper">
+          Pause ({pauseWhy}): the next episode starts in {fmtTime(countdown)}.{' '}
+          <button type="button" className="btn secondary compact" onClick={() => (skipRef.current = true)}>
+            Skip wait
+          </button>
+        </p>
+      )}
       {note && <p className="warn-text" role="status"><span>{note}</span></p>}
 
       <div className="row">
@@ -483,8 +551,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
             Stop after cancelling the current step
           </button>
         ) : (
-          <button className="btn" onClick={run} disabled={!canStart}>
-            {counts.done > 0 ? `Continue (${counts.left} left)` : `Start ${counts.left || ''} ${upload ? 'render & upload' : 'render'}`.replace(/\s+/g, ' ')}
+          <button className="btn" id="bulk-start" onClick={() => void run()} disabled={!canStart}>
+            {counts.done > 0 ? `Continue (${counts.left} left)` : upload ? 'Start render & upload YouTube all' : 'Start render all'}
           </button>
         )}
         {Object.keys(doneMap).length > 0 && !running && (

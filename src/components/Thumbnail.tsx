@@ -43,7 +43,7 @@ export type ThumbSettings = {
 };
 
 const THUMB_DEFAULTS: ThumbSettings = {
-  bigText: 'EPISODE {n}',
+  bigText: '{show}',
   smallText: '{title}',
   smallPlacement: 'below',
   bigFont: 'anton',
@@ -75,11 +75,22 @@ const THUMB_DEFAULTS: ThumbSettings = {
 
 const TOKENS_HINT = '{n} {nn} {show} {title}';
 
+/** Saved style settings. Once, an old fixed big text (like "EPISODE {n}" or a typed name) is switched to follow the Show name. */
+function loadThumb(): ThumbSettings {
+  const saved = load<Partial<ThumbSettings>>('thumb', {});
+  if (load<number>('thumb.v', 1) < 2) {
+    if (saved.bigText !== undefined && (!saved.bigText.includes('{') || saved.bigText === 'EPISODE {n}')) saved.bigText = '{show}';
+    save('thumb', saved);
+    save('thumb.v', 2);
+  }
+  return { ...THUMB_DEFAULTS, ...saved };
+}
+
 let lastImage: File | null = null; // the picked background image, reused by renderThumbnailBlob
 
 /** Renders a thumbnail with the saved style settings (same look as the editor) — used for upload and bulk. */
 export async function renderThumbnailBlob(o: { video: File | null; show: string; episode: number; title: string }): Promise<Blob> {
-  const s: ThumbSettings = { ...THUMB_DEFAULTS, ...load<Partial<ThumbSettings>>('thumb', {}) };
+  const s: ThumbSettings = loadThumb();
   const fields = { show: o.show, episode: o.episode, title: o.title };
   const bigText = fillTemplate(s.bigText, fields);
   const smallText = fillTemplate(s.smallText, fields);
@@ -134,7 +145,7 @@ async function frameFromVideo(file: File, time: number): Promise<ImageBitmap | n
 /** YouTube thumbnail maker. All style settings persist in localStorage for the next episode. */
 export function Thumbnail(props: { video: File | null; show: string; episode: number; title: string; baseName: string }) {
   const fold = useFold('thumbnail');
-  const [s, setS] = useState<ThumbSettings>(() => ({ ...THUMB_DEFAULTS, ...load<Partial<ThumbSettings>>('thumb', {}) }));
+  const [s, setS] = useState<ThumbSettings>(loadThumb);
   const set = <K extends keyof ThumbSettings>(key: K, value: ThumbSettings[K]) => setS((prev) => ({ ...prev, [key]: value }));
   useEffect(() => save('thumb', s), [s]);
 
@@ -296,7 +307,8 @@ export function Thumbnail(props: { video: File | null; show: string; episode: nu
           <Group title="Text" open>
             <label className="field">
               Big text
-              <input value={s.bigText} onChange={(e) => set('bigText', e.target.value)} placeholder="EPISODE {n}" />
+              <input value={s.bigText} onChange={(e) => set('bigText', e.target.value)} placeholder="{show}" />
+              <span className="helper">{'{show}'} = the Show name from step 4, so it follows automatically. Type your own text to replace it.</span>
             </label>
             <div className="trio">
               <FontSelect label="Font" value={s.bigFont} onChange={(v) => set('bigFont', v)} />

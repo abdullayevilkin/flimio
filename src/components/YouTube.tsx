@@ -122,19 +122,33 @@ export function YouTube(props: { yt: Youtube; fileReady: boolean; onUpload: () =
       {yt.state.kind === 'error' && <ErrorNotice message={yt.state.message} details={yt.state.details} />}
 
       <div className="row">
+        {!yt.session && (
+          <button
+            id="yt-signin"
+            className="btn secondary"
+            onClick={() => void yt.ensureSession().catch(() => {})}
+            disabled={busy || !yt.id}
+            title={yt.id ? 'Open the Google sign-in' : 'Paste your client ID first'}
+          >
+            {yt.state.kind === 'signing' ? 'Signing in…' : 'Sign in to Google'}
+          </button>
+        )}
         {uploading ? (
           <button id="yt-upload" className="btn secondary" onClick={yt.cancel}>
             Cancel upload
           </button>
         ) : (
           <button id="yt-upload" className="btn" onClick={props.onUpload} disabled={busy || !yt.id || !yt.titleOk || !props.fileReady}>
-            {yt.session ? 'Upload to YouTube' : 'Sign in & upload to YouTube'}
+            Upload to YouTube
           </button>
         )}
         {yt.session && !uploading && (
-          <button className="btn secondary" onClick={yt.signOut}>
-            Sign out of Google
-          </button>
+          <>
+            <span className="helper">Signed in to Google.</span>
+            <button className="btn secondary" onClick={yt.signOut}>
+              Sign out of Google
+            </button>
+          </>
         )}
       </div>
     </section>

@@ -10,7 +10,7 @@ import { probeAudio, probeVideo } from './lib/probe';
 import { estimateSize, render } from './lib/render';
 import './styles/base.css';
 import { YouTube } from './components/YouTube';
-import { Bulk } from './components/Bulk';
+import { Bulk, type BulkControl, type BulkStatus } from './components/Bulk';
 import './App.css';
 
 type Slot = 'audio' | 'video' | 'intro' | 'outro';
@@ -79,6 +79,8 @@ export default function App() {
   const [bulkCount, setBulkCount] = useState({ n: 0, running: false });
   const bulkMode = bulkCount.n >= 2;
   const onBulkCount = useCallback((n: number, running: boolean) => setBulkCount((c) => (c.n === n && c.running === running ? c : { n, running })), []);
+  const bulkRef = useRef<BulkControl | null>(null);
+  const [bulkStatus, setBulkStatus] = useState<BulkStatus | null>(null);
   const [bulkPreview, setBulkPreview] = useState<{ video: File | null; episode: number; title: string } | null>(null);
   const [rememberLoop, setRememberLoop] = useState(() => load('rememberLoop', false));
   const [loopFromStore, setLoopFromStore] = useState(false);
@@ -645,6 +647,8 @@ export default function App() {
         sharedLoop={video?.file ?? null}
         onPreview={setBulkPreview}
         onCount={onBulkCount}
+        controlRef={bulkRef}
+        onStatus={setBulkStatus}
         makeOpts={(o) => ({
           audio: o.audio,
           video: o.video,
@@ -720,11 +724,7 @@ export default function App() {
           </p>
         )}
         {yt.state.kind === 'error' && <p className="error-text">YouTube: {yt.state.message} Fix it in step 6 and use “Upload to YouTube” there.</p>}
-        {bulkMode && (
-          <p className="helper">
-            The bulk queue (step 7) has {bulkCount.n} episodes, so use its Start button — or clear that list to create a single episode here.
-          </p>
-        )}
+        {bulkMode && bulkStatus && <BulkBar s={bulkStatus} />}
         <div className="actionbar-row">
           <div className="actionbar-stats">
             {audio && video ? (
@@ -752,7 +752,18 @@ export default function App() {
                 Download MP4
               </a>
             )}
-            {running ? (
+            {bulkStatus?.running ? (
+              <>
+                {bulkStatus.countdown !== null && (
+                  <button className="btn secondary" onClick={() => bulkRef.current?.skipWait()} title="Skip the wait: the next episode starts in 1 second">
+                    Skip wait
+                  </button>
+                )}
+                <button className="btn secondary" onClick={() => bulkRef.current?.stop()}>
+                  Stop queue
+                </button>
+              </>
+            ) : running ? (
               <button className="btn secondary" onClick={() => abortRef.current?.abort()}>
                 Cancel rendering
               </button>
@@ -762,8 +773,13 @@ export default function App() {
               </button>
             ) : (
               <>
-                <button className="btn secondary" onClick={() => generate('upload')} disabled={yt.busy || bulkMode}>
-                  Create & upload to YouTube
+                <button
+                  className="btn secondary"
+                  onClick={() => (bulkMode ? bulkRef.current?.start() : void generate('upload'))}
+                  disabled={yt.busy || (bulkMode && !bulkStatus?.canStart)}
+                  title={bulkMode ? 'Starts the bulk queue (step 7)' : undefined}
+                >
+                  {bulkMode ? `Create & upload all ${bulkCount.n} to YouTube` : 'Create & upload to YouTube'}
                 </button>
                 <button className="btn" onClick={() => generate('save')} disabled={yt.busy || bulkMode}>
                   {savePicker ? 'Create & save video' : 'Create video'}
@@ -782,6 +798,62 @@ export default function App() {
         . Nothing is uploaded anywhere unless you publish to YouTube yourself.
       </footer>
     </main>
+  );
+}
+
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <>{fmtTime(Math.max(0, Math.round((now - since) / 1000)))}</>;
+}
+
+/** The queue (step 7) as seen from the bottom bar: what runs now, how long it has been going, the last result. */
+function BulkBar({ s }: { s: BulkStatus }) {
+  return (
+    <div className="bulkbar">
+      <p className="bulkbar-head">
+        <strong>Bulk queue</strong> · {s.done} of {s.total} uploaded
+        {s.startedAt !== null && (
+          <>
+            {' '}
+            · running for <strong><Elapsed since={s.startedAt} /></strong>
+          </>
+        )}
+      </p>
+      {s.current && (
+        <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.current.progress * 100)}>
+          <div className="bar">
+            <div style={{ transform: `scaleX(${s.current.progress})` }} />
+          </div>
+          <span>
+            Episode {s.current.episode} · {s.current.title || 'untitled'} · {s.current.stage === 'rendering' ? 'Rendering' : 'Uploading'} {Math.round(s.current.progress * 100)}%
+          </span>
+        </div>
+      )}
+      {s.countdown !== null && (
+        <p className="helper">
+          Next episode in <strong>{fmtTime(s.countdown)}</strong> ({s.pauseWhy})
+        </p>
+      )}
+      {s.lastDone && (
+        <p className="done-line">
+          ✓ Episode {s.lastDone.episode} {s.lastDone.title ? `“${s.lastDone.title}” ` : ''}uploaded
+          {s.lastDone.url && (
+            <>
+              :{' '}
+              <a href={s.lastDone.url} target="_blank" rel="noreferrer">
+                {s.lastDone.url}
+              </a>
+            </>
+          )}
+        </p>
+      )}
+      {s.lastError && <p className="error-text">Episode {s.lastError.episode} failed: {s.lastError.message}</p>}
+      {s.note && <p className="warn-text" role="status"><span>{s.note}</span></p>}
+    </div>
   );
 }
 
