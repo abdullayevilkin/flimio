@@ -47,10 +47,37 @@ export type MakeOpts = (o: {
   onProgress: (p: number, stage: string) => void;
 }) => RenderOptions;
 
+// A hidden tab gets its normal timers slowed to about one tick a minute. A timer inside a worker is not slowed, so waits keep their length.
+let timerWorker: Worker | null | undefined;
+const workerTimer = (): Worker | null => {
+  if (timerWorker !== undefined) return timerWorker;
+  try {
+    const src = 'onmessage=(e)=>{const id=e.data.id;setTimeout(()=>postMessage(id),e.data.ms)}';
+    timerWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+  } catch {
+    timerWorker = null;
+  }
+  return timerWorker;
+};
+let sleepId = 0;
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true });
+    if (signal.aborted) return resolve();
+    const w = workerTimer();
+    if (!w) {
+      const t = setTimeout(resolve, ms);
+      signal.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true });
+      return;
+    }
+    const id = ++sleepId;
+    const done = () => {
+      w.removeEventListener('message', onMsg);
+      resolve();
+    };
+    const onMsg = (e: MessageEvent) => e.data === id && done();
+    w.addEventListener('message', onMsg);
+    w.postMessage({ id, ms });
+    signal.addEventListener('abort', done, { once: true });
   });
 
 /** Many episodes in one go: render each one, optionally upload it, with pauses and limits that keep YouTube happy. */
@@ -180,16 +207,22 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     let limitRetries = 0;
     const pauseFor = async (seconds: number, why: string) => {
       setPauseWhy(why);
-      for (let s = Math.round(seconds); s > 0 && !ctrl.signal.aborted && !skipRef.current; s--) {
-        setCountdown(s);
-        await sleep(1000, ctrl.signal);
+      const end = Date.now() + Math.round(seconds) * 1000; // by the clock, so a slow background tab cannot stretch the wait
+      while (!ctrl.signal.aborted && !skipRef.current && Date.now() < end) {
+        setCountdown(Math.ceil((end - Date.now()) / 1000));
+        await sleep(Math.min(1000, end - Date.now()), ctrl.signal);
       }
       skipRef.current = false;
       setCountdown(null);
     };
     // Keep the screen awake while the queue runs, so the computer does not fall asleep mid-way.
     const wakeApi = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
-    const wake = await wakeApi?.request('screen').catch(() => null);
+    let wake = await wakeApi?.request('screen').catch(() => null);
+    // The browser drops the screen lock when the tab is hidden; take it again when the tab is back.
+    const reWake = () => {
+      if (document.visibilityState === 'visible') void wakeApi?.request('screen').then((w) => (wake = w), () => {});
+    };
+    document.addEventListener('visibilitychange', reWake);
     try {
       if (upload) await yt.ensureSession(); // inside the click, so the Google popup is allowed
       setStartedAt(Date.now()); // the clock starts after the Google sign-in
@@ -319,6 +352,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     } finally {
       setCountdown(null);
       setPauseWhy('');
+      document.removeEventListener('visibilitychange', reWake);
       void wake?.release().catch(() => {});
       setRunning(false);
       setStartedAt(null);
