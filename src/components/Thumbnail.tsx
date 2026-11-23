@@ -132,10 +132,15 @@ async function frameFromVideo(file: File, time: number): Promise<ImageBitmap | n
       v.onloadedmetadata = () => res();
       v.onerror = () => rej(new Error('Could not read the loop video for the thumbnail.'));
     });
-    v.currentTime = Math.min(Math.max(0, time), Math.max(0, v.duration - 0.05));
-    await new Promise<void>((res) => {
-      v.onseeked = () => res();
-    });
+    const once = (name: 'loadeddata' | 'seeked') => new Promise<void>((res) => v.addEventListener(name, () => res(), { once: true }));
+    const target = Math.min(Math.max(0, time), Math.max(0, v.duration - 0.05));
+    if (Math.abs(v.currentTime - target) > 0.01) {
+      const seeked = once('seeked');
+      v.currentTime = target;
+      await seeked;
+    } else if (v.readyState < 2) {
+      await once('loadeddata'); // already at that time: no "seeked" would come, so wait for the first frame
+    }
     return await createImageBitmap(v);
   } finally {
     URL.revokeObjectURL(url);

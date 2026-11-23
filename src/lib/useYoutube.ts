@@ -3,14 +3,14 @@ import { describeError } from '../components/ui';
 import { renderThumbnailBlob } from '../components/Thumbnail';
 import { load, save } from './format';
 import { fillTemplate, type NamingFields } from './naming';
-import { setThumbnail, signIn, signOut, uploadVideo, type Privacy, type Session, type Uploaded } from './youtube';
+import { setThumbnail, signIn, signOut, uploadVideo, withTimeout, type Privacy, type Session, type Uploaded } from './youtube';
 
 const ENV_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
 
 export type YtState =
   | { kind: 'idle' }
   | { kind: 'signing' }
-  | { kind: 'uploading'; progress: number }
+  | { kind: 'uploading'; progress: number; stage?: 'thumbnail' }
   | { kind: 'done'; video: Uploaded; privacy: Privacy; thumb: 'set' | 'off' | { error: string } }
   | { kind: 'error'; message: string; details: string };
 
@@ -94,8 +94,13 @@ export function useYoutube(p: { defaultTitle: string; fields: NamingFields; vide
       );
       let thumb: 'set' | 'off' | { error: string } = 'off';
       if (l.withThumb) {
+        setState({ kind: 'uploading', progress: 1, stage: 'thumbnail' });
         try {
-          await setThumbnail(video.id, await renderThumbnailBlob({ video: l.video, ...l.fields }), s, ctrl.signal);
+          await withTimeout(
+            (async () => setThumbnail(video.id, await renderThumbnailBlob({ video: l.video, ...l.fields }), s, ctrl.signal))(),
+            45_000,
+            'Making the thumbnail took too long, so it was skipped. The video itself is uploaded.',
+          );
           thumb = 'set';
         } catch (e) {
           thumb = { error: e instanceof Error ? e.message : 'The thumbnail could not be set.' };

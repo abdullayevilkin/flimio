@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fmtBytes, fmtTime, load, save } from '../lib/format';
+import { fmtBytes, load, save } from '../lib/format';
 import { applyTemplate, fillTemplate, titleFromFileName, toFileName } from '../lib/naming';
 import { render, type RenderOptions } from '../lib/render';
 import type { Youtube } from '../lib/useYoutube';
-import { isLimitError, setThumbnail, signIn, uploadVideo } from '../lib/youtube';
+import { isLimitError, setThumbnail, signIn, uploadVideo, withTimeout } from '../lib/youtube';
 import { renderThumbnailBlob } from './Thumbnail';
 import { FileButton, SectionHead, useFold } from './ui';
 
 type ItemState = 'queued' | 'rendering' | 'uploading' | 'done' | 'error' | 'earlier';
-type Runtime = { state: ItemState; progress?: number; link?: string; message?: string };
+type Runtime = { state: ItemState; progress?: number; link?: string; message?: string; step?: 'thumbnail' };
 type Entry = { file: File; title: string };
 
 /** What the page-bottom bar shows about the queue. */
@@ -18,14 +18,14 @@ export type BulkStatus = {
   running: boolean;
   canStart: boolean;
   startedAt: number | null;
-  current: { episode: number; title: string; stage: 'rendering' | 'uploading'; progress: number } | null;
-  countdown: number | null;
-  pauseWhy: string;
+  current: { episode: number; title: string; stage: 'rendering' | 'uploading' | 'thumbnail'; progress: number } | null;
+  paused: boolean; // waiting for Resume
+  pausing: boolean; // pause asked, the current episode is still finishing
   note: string | null;
   lastDone: { episode: number; title: string; url?: string } | null;
   lastError: { episode: number; message: string } | null;
 };
-export type BulkControl = { start: () => void; stop: () => void; skipWait: () => void };
+export type BulkControl = { start: () => void; stop: () => void; pause: () => void; resume: () => void };
 
 const key = (f: File) => `${f.name}|${f.size}`;
 const natural = (a: File, b: File) => a.name.localeCompare(b.name, undefined, { numeric: true });
@@ -94,19 +94,11 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   }, [props.startEpisode]);
 
   const [upload, setUpload] = useState<boolean>(() => load('bulk.upload', true));
-  const [cap, setCap] = useState<number>(() => load('bulk.cap', 5));
-  const [longPause, setLongPause] = useState<number>(() => load<number>('bulk.longPauseSec', load<number>('bulk.longPause', 60) * 60)); // seconds
-  const [keepGoing, setKeepGoing] = useState<boolean>(() => load('bulk.keepGoing', true));
-  const [gap, setGap] = useState<number>(() => load<number>('bulk.gapSec', load<number>('bulk.gap', 2) * 60)); // seconds
   const [schedule, setSchedule] = useState<boolean>(() => load('bulk.schedule', false));
   const [scheduleStart, setScheduleStart] = useState<string>(() => load('bulk.scheduleStart', ''));
   const [everyDays, setEveryDays] = useState<number>(() => load('bulk.everyDays', 1));
   const [dir, setDir] = useState<FileSystemDirectoryHandle | null>(null);
   useEffect(() => save('bulk.upload', upload), [upload]);
-  useEffect(() => save('bulk.cap', cap), [cap]);
-  useEffect(() => save('bulk.longPauseSec', longPause), [longPause]);
-  useEffect(() => save('bulk.keepGoing', keepGoing), [keepGoing]);
-  useEffect(() => save('bulk.gapSec', gap), [gap]);
   useEffect(() => save('bulk.schedule', schedule), [schedule]);
   useEffect(() => save('bulk.scheduleStart', scheduleStart), [scheduleStart]);
   useEffect(() => save('bulk.everyDays', everyDays), [everyDays]);
@@ -115,10 +107,10 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const [doneMap, setDoneMap] = useState<Record<string, string>>(() => load('bulk.done', {}));
   const [running, setRunning] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [pauseWhy, setPauseWhy] = useState('');
   const abortRef = useRef<AbortController | null>(null);
-  const skipRef = useRef(false);
+  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [lastDone, setLastDone] = useState<BulkStatus['lastDone']>(null);
   const [lastError, setLastError] = useState<BulkStatus['lastError']>(null);
@@ -196,25 +188,15 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
   const run = async (fromId?: string) => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    skipRef.current = false;
+    pausedRef.current = false;
+    setPaused(false);
+    setPausing(false);
     setRunning(true);
     // Allow the “one hour passed” notification (must be asked inside the click).
     if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission();
     setLastError(null);
     setNote(null);
-    let uploads = 0;
     let errorsInARow = 0;
-    let limitRetries = 0;
-    const pauseFor = async (seconds: number, why: string) => {
-      setPauseWhy(why);
-      const end = Date.now() + Math.round(seconds) * 1000; // by the clock, so a slow background tab cannot stretch the wait
-      while (!ctrl.signal.aborted && !skipRef.current && Date.now() < end) {
-        setCountdown(Math.ceil((end - Date.now()) / 1000));
-        await sleep(Math.min(1000, end - Date.now()), ctrl.signal);
-      }
-      skipRef.current = false;
-      setCountdown(null);
-    };
     // Keep the screen awake while the queue runs, so the computer does not fall asleep mid-way.
     const wakeApi = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
     let wake = await wakeApi?.request('screen').catch(() => null);
@@ -232,6 +214,12 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       const todo = all.filter((i, idx) => idx >= Math.max(0, from) && (i.runtime.state === 'queued' || i.runtime.state === 'error'));
       for (let n = 0; n < todo.length; n++) {
         if (ctrl.signal.aborted) break;
+        if (pausedRef.current) {
+          setPaused(true);
+          while (pausedRef.current && !ctrl.signal.aborted) await sleep(500, ctrl.signal);
+          setPaused(false);
+          if (ctrl.signal.aborted) break;
+        }
         const it = itemsRef.current.find((x) => x.id === todo[n].id)!;
         const fields = { show: props.show, episode: it.episode, title: it.e.title };
         const baseName = applyTemplate(props.template, fields) || it.e.title || `episode-${it.episode}`;
@@ -290,10 +278,14 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
               ctrl.signal,
             );
             link = video.url;
-            uploads++;
             if (yt.withThumb) {
+              patch(it.id, { state: 'uploading', progress: 1, step: 'thumbnail' });
               try {
-                await setThumbnail(video.id, await renderThumbnailBlob({ video: it.loop, ...fields }), session, ctrl.signal);
+                await withTimeout(
+                  (async () => setThumbnail(video.id, await renderThumbnailBlob({ video: it.loop, ...fields }), session, ctrl.signal))(),
+                  45_000,
+                  'it took too long, so it was skipped',
+                );
               } catch (e) {
                 thumbWarn = ` Thumbnail not set: ${e instanceof Error ? e.message : 'unknown error'}`;
               }
@@ -307,17 +299,6 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
           patch(it.id, { state: 'done', link, message: thumbWarn.trim() || undefined });
           setLastDone({ episode: it.episode, title: it.e.title, url: link });
           errorsInARow = 0;
-          limitRetries = 0;
-          // Pause between uploads so YouTube does not see a burst; a longer one after every `cap` uploads.
-          if (upload && n < todo.length - 1) {
-            const batchEnd = cap > 0 && uploads % cap === 0;
-            if (batchEnd && longPause === 0) {
-              setNote(`Stopped after ${uploads} uploads. ${todo.length - n - 1} left in the queue — press Continue to go on.`);
-              break;
-            }
-            const seconds = (batchEnd ? longPause : gap) + 1 + Math.floor(Math.random() * 10); // plus a random 1–10 s each time
-            await pauseFor(seconds, batchEnd ? `long pause after ${uploads} uploads` : `pause after episode ${it.episode}`);
-          }
         } catch (e) {
           if ((e as DOMException).name === 'AbortError') {
             patch(it.id, { state: 'queued' });
@@ -326,14 +307,6 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
           const message = e instanceof Error ? e.message : String(e);
           if (isLimitError(e)) {
             patch(it.id, { state: 'queued' });
-            if (keepGoing && limitRetries < 24) {
-              limitRetries++;
-              setNote(`${message} Trying again automatically in 60 minutes (keep this page open).`);
-              await pauseFor(3600, 'YouTube limit reached, trying again');
-              setNote(null);
-              n--; // same episode again
-              continue;
-            }
             setNote(`${message} Stopped here; ${todo.length - n} left in the queue. Press Continue later.`);
             break;
           }
@@ -350,8 +323,9 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     } catch (e) {
       if (!ctrl.signal.aborted) setNote(e instanceof Error ? e.message : 'Could not start the queue.');
     } finally {
-      setCountdown(null);
-      setPauseWhy('');
+      pausedRef.current = false;
+      setPaused(false);
+      setPausing(false);
       document.removeEventListener('visibilitychange', reWake);
       void wake?.release().catch(() => {});
       setRunning(false);
@@ -371,28 +345,37 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       running,
       canStart,
       startedAt,
-      current: busyItem ? { episode: busyItem.episode, title: busyItem.e.title, stage: busyItem.runtime.state as 'rendering' | 'uploading', progress: pct / 100 } : null,
-      countdown,
-      pauseWhy,
+      current: busyItem ? { episode: busyItem.episode, title: busyItem.e.title, stage: busyItem.runtime.step === 'thumbnail' ? 'thumbnail' : (busyItem.runtime.state as 'rendering' | 'uploading'), progress: pct / 100 } : null,
+      paused,
+      pausing,
       note,
       lastDone,
       lastError,
     });
-  }, [entries.length, counts.done, running, canStart, startedAt, busyItem?.id, busyItem?.runtime.state, pct, countdown, pauseWhy, note, lastDone, lastError, onStatus]);
-  useEffect(() => () => onStatus({ total: 0, done: 0, running: false, canStart: false, startedAt: null, current: null, countdown: null, pauseWhy: '', note: null, lastDone: null, lastError: null }), [onStatus]);
-  controlRef.current = { start: () => void run(), stop: () => abortRef.current?.abort(), skipWait: () => (skipRef.current = true) };
+  }, [entries.length, counts.done, running, canStart, startedAt, busyItem?.id, busyItem?.runtime.state, pct, busyItem?.runtime.step, paused, pausing, note, lastDone, lastError, onStatus]);
+  useEffect(() => () => onStatus({ total: 0, done: 0, running: false, canStart: false, startedAt: null, current: null, paused: false, pausing: false, note: null, lastDone: null, lastError: null }), [onStatus]);
+  controlRef.current = { start: () => void run(), stop: () => abortRef.current?.abort(), pause: () => {
+      pausedRef.current = true;
+      setPausing(true);
+    },
+    resume: () => {
+      pausedRef.current = false;
+      setPausing(false);
+    },
+  };
 
   const firstQueuedId = items.find((x) => x.runtime.state === 'queued' || x.runtime.state === 'error')?.id;
   const eta = (i: (typeof items)[number], idx: number) => {
     const r = i.runtime;
     if (r.state === 'rendering') return `Rendering ${Math.round((r.progress ?? 0) * 100)}%`;
+    if (r.step === 'thumbnail') return 'Setting thumbnail…';
     if (r.state === 'uploading') return `Uploading ${Math.round((r.progress ?? 0) * 100)}%`;
     if (r.state === 'done') return '✓ Uploaded';
     if (r.state === 'earlier') return '✓ Uploaded earlier';
     if (r.state === 'error') return 'Failed';
     // queued
     if (!running) return 'Not started';
-    if (countdown !== null && i.id === firstQueuedId) return `Starts in ${fmtTime(countdown)} · ${pauseWhy}`;
+    if (paused && i.id === firstQueuedId) return 'Paused · press Resume';
     const before = items[idx - 1];
     return before ? `Waits for episode ${before.episode}` : 'Next in line';
   };
@@ -465,27 +448,9 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
 
       {upload && (
         <>
-          <div className="row">
-            <label className="field narrow">
-              Wait between uploads (sec)
-              <input type="number" min={0} max={3600} step={5} value={gap} onChange={(e) => setGap(Math.max(0, Math.round(Number(e.target.value)) || 0))} disabled={running} />
-            </label>
-            <label className="field narrow">
-              Long pause after every (uploads)
-              <input type="number" min={0} max={50} value={cap} onChange={(e) => setCap(Math.max(0, Number(e.target.value) || 0))} disabled={running} />
-            </label>
-            <label className="field narrow">
-              Long pause (sec)
-              <input type="number" min={0} max={86400} step={30} value={longPause} onChange={(e) => setLongPause(Math.max(0, Math.round(Number(e.target.value)) || 0))} disabled={running} />
-            </label>
-          </div>
           <p className="helper">
-            The queue keeps going on its own: a short wait after each upload and a long pause after every group (0 seconds = stop there instead). Every wait gets a random 1–10 seconds added. Leave this page open and the computer awake; the screen is kept on while it runs.
+            The queue goes one episode after another: when an upload is finished, the next one starts. Use Pause in the bar at the bottom to hold it after the current episode. Leave this page open and the computer awake; the screen is kept on while it runs.
           </p>
-          <label className="check">
-            <input type="checkbox" checked={keepGoing} onChange={(e) => setKeepGoing(e.target.checked)} disabled={running} />
-            If YouTube says the daily limit is reached, wait an hour and try again automatically
-          </label>
           <label className="check">
             <input type="checkbox" checked={schedule} onChange={(e) => setSchedule(e.target.checked)} disabled={running} />
             Schedule publishing (uploads stay private, then YouTube publishes them one by one)
@@ -546,11 +511,6 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
                   ✕
                 </button>
                 {eta(i, idx)}
-                {running && countdown !== null && i.id === firstQueuedId && (
-                  <button type="button" className="btn secondary compact" onClick={() => (skipRef.current = true)} title="Skip the wait: the next episode starts in 1 second">
-                    Skip wait
-                  </button>
-                )}
                 {!running && (i.runtime.state === 'queued' || i.runtime.state === 'error') && baseOk && (!!i.loop) && (
                   <button type="button" className="btn secondary compact" onClick={() => void run(i.id)} title="Start the queue from this episode (earlier ones stay as they are)">
                     {i.runtime.state === 'error' ? 'Retry' : 'Start from here'}
@@ -571,14 +531,6 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
       )}
 
       {entries.length === 1 && <p className="helper">Only one episode here: use “Create & upload to YouTube” at the bottom of the page. The bulk queue starts from 2 episodes.</p>}
-      {countdown !== null && (
-        <p className="helper">
-          Pause ({pauseWhy}): the next episode starts in {fmtTime(countdown)}.{' '}
-          <button type="button" className="btn secondary compact" onClick={() => (skipRef.current = true)}>
-            Skip wait
-          </button>
-        </p>
-      )}
       {note && <p className="warn-text" role="status"><span>{note}</span></p>}
 
       <div className="row">

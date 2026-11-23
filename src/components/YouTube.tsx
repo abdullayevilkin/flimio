@@ -99,7 +99,7 @@ export function YouTube(props: { yt: Youtube; fileReady: boolean; onUpload: () =
             <div style={{ transform: `scaleX(${yt.state.progress})` }} />
           </div>
           <span>
-            Uploading {(yt.state.progress * 100).toFixed(0)}%{props.size ? ` of ${fmtBytes(props.size)}` : ''}
+            {yt.state.stage === 'thumbnail' ? 'Video uploaded · setting the thumbnail…' : `Uploading ${(yt.state.progress * 100).toFixed(0)}%`}{yt.state.stage === 'thumbnail' ? '' : props.size ? ` of ${fmtBytes(props.size)}` : ''}
           </span>
         </div>
       )}

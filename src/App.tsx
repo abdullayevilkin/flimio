@@ -695,7 +695,7 @@ export default function App() {
           </p>
         )}
         {status.kind === 'running' && <Progress status={status} />}
-        {status.kind === 'done' && (
+        {!bulkMode && status.kind === 'done' && (
           <p className="done-line">
             Done in {status.seconds.toFixed(1)} s —{' '}
             {status.where !== 'picked' ? (
@@ -721,10 +721,10 @@ export default function App() {
             <div className="bar">
               <div style={{ transform: `scaleX(${yt.state.progress})` }} />
             </div>
-            <span>Uploading to YouTube · {(yt.state.progress * 100).toFixed(0)}%</span>
+            <span>{yt.state.stage === 'thumbnail' ? 'Video uploaded · setting the thumbnail…' : `Uploading to YouTube · ${(yt.state.progress * 100).toFixed(0)}%`}</span>
           </div>
         )}
-        {yt.state.kind === 'done' && (
+        {!bulkMode && yt.state.kind === 'done' && (
           <p className="done-line">
             On YouTube ({yt.state.privacy}):{' '}
             <a href={yt.state.video.url} target="_blank" rel="noreferrer">
@@ -775,16 +775,13 @@ export default function App() {
               </a>
             )}
             {bulkStatus?.running ? (
-              <>
-                {bulkStatus.countdown !== null && (
-                  <button className="btn secondary" onClick={() => bulkRef.current?.skipWait()} title="Skip the wait: the next episode starts in 1 second">
-                    Skip wait
-                  </button>
-                )}
-                <button className="btn secondary" onClick={() => bulkRef.current?.stop()}>
-                  Stop queue
-                </button>
-              </>
+              <button
+                className="btn secondary"
+                onClick={() => (bulkStatus.paused || bulkStatus.pausing ? bulkRef.current?.resume() : bulkRef.current?.pause())}
+                title={bulkStatus.pausing && !bulkStatus.paused ? 'Pause was asked; press to continue without pausing' : 'Pause holds the queue after the current episode'}
+              >
+                {bulkStatus.paused ? 'Resume' : bulkStatus.pausing ? 'Pausing after this episode… (cancel)' : 'Pause'}
+              </button>
             ) : running ? (
               <button className="btn secondary" onClick={() => abortRef.current?.abort()}>
                 Cancel rendering
@@ -863,15 +860,12 @@ function BulkBar({ s }: { s: BulkStatus }) {
             <div style={{ transform: `scaleX(${s.current.progress})` }} />
           </div>
           <span>
-            Episode {s.current.episode} · {s.current.title || 'untitled'} · {s.current.stage === 'rendering' ? 'Rendering' : 'Uploading'} {Math.round(s.current.progress * 100)}%
+            Episode {s.current.episode} · {s.current.title || 'untitled'} · {s.current.stage === 'thumbnail' ? 'Video uploaded · setting the thumbnail…' : `${s.current.stage === 'rendering' ? 'Rendering' : 'Uploading'} ${Math.round(s.current.progress * 100)}%`}
           </span>
         </div>
       )}
-      {s.countdown !== null && (
-        <p className="helper">
-          Next episode in <strong>{fmtTime(s.countdown)}</strong> ({s.pauseWhy})
-        </p>
-      )}
+      {s.paused && <p className="helper">Paused. Press Resume to start the next episode.</p>}
+      {s.pausing && !s.paused && <p className="helper">Pause asked: the queue will hold after this episode.</p>}
       {s.lastDone && (
         <p className="done-line">
           ✓ Episode {s.lastDone.episode} {s.lastDone.title ? `“${s.lastDone.title}” ` : ''}uploaded

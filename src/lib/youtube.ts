@@ -88,6 +88,17 @@ export const isLimitError = (e: unknown) => e instanceof UploadError && (e.reaso
 
 class Retryable extends Error {}
 
+/** A step that can hang (for example in a hidden tab) must not hold the queue forever. */
+export function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = window.setTimeout(() => reject(new Error(message)), ms);
+    work.then(
+      (v) => (clearTimeout(t), resolve(v)),
+      (e) => (clearTimeout(t), reject(e)),
+    );
+  });
+}
+
 /** Uploads one file with the resumable protocol (single PUT, real progress via XHR). */
 export async function uploadVideo(
   file: Blob,
