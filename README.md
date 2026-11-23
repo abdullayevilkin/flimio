@@ -55,5 +55,6 @@ Every push to `main` builds and deploys to GitHub Pages via `.github/workflows/d
 - **Skip wait** (row, panel or bottom bar) ends the current pause and starts the next episode in 1 second.
 - **Start from here** on a not-started row starts the queue at that episode (useful after the computer was off).
 - The bottom bar shows the running episode, progress, time since Start, the next-episode countdown and the last result or error.
+- The bar's timer starts after the Google sign-in, turns red after 1 hour and sends a browser notification once (allow notifications when asked).
 - With 2 or more episodes, the bottom “Create & upload to YouTube” button starts the bulk queue; with one episode it renders and uploads that episode.
 - The thumbnail's Big text defaults to `{show}` (the Show name).

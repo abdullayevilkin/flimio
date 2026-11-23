@@ -801,13 +801,25 @@ export default function App() {
   );
 }
 
+const HOUR = 3600;
+/** Time since the queue started (after the Google sign-in). Turns red after one hour and sends a notification once. */
 function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(Date.now());
+  const notified = useRef(false);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  return <>{fmtTime(Math.max(0, Math.round((now - since) / 1000)))}</>;
+  const secs = Math.max(0, Math.round((now - since) / 1000));
+  const over = secs >= HOUR;
+  useEffect(() => {
+    if (!over || notified.current) return;
+    notified.current = true;
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Flimio: 1 hour passed', { body: 'The bulk queue has been running for an hour. The Google sign-in may have expired, so check the page.' });
+    }
+  }, [over]);
+  return <span className={over ? 'overdue' : undefined}>{fmtTime(secs)}</span>;
 }
 
 /** The queue (step 7) as seen from the bottom bar: what runs now, how long it has been going, the last result. */

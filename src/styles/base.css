@@ -329,3 +329,4 @@ html { scroll-behavior: smooth; }
 .bulkbar p { margin: 0; }
 .bulkbar-head { font-size: var(--text-secondary); color: var(--text-muted); }
 .bulkbar-head strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.bulkbar .overdue { color: var(--danger); }

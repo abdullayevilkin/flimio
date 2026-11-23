@@ -171,7 +171,8 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     abortRef.current = ctrl;
     skipRef.current = false;
     setRunning(true);
-    setStartedAt(Date.now());
+    // Allow the “one hour passed” notification (must be asked inside the click).
+    if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission();
     setLastError(null);
     setNote(null);
     let uploads = 0;
@@ -191,6 +192,7 @@ export function Bulk(props: { yt: Youtube; show: string; template: string; start
     const wake = await wakeApi?.request('screen').catch(() => null);
     try {
       if (upload) await yt.ensureSession(); // inside the click, so the Google popup is allowed
+      setStartedAt(Date.now()); // the clock starts after the Google sign-in
       const root = await navigator.storage.getDirectory();
       const all = itemsRef.current;
       const from = fromId ? all.findIndex((x) => x.id === fromId) : 0;
